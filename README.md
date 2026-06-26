@@ -38,6 +38,8 @@ python -m uvicorn api.app:app --host 0.0.0.0 --port 8000
 
 启动后自动初始化数据库、注册定时任务。默认以 **dry-run** 模式运行（只生成不发布）。
 
+> **注意**：订阅号不支持 API 发布，需在 Dashboard 文章详情页点"一键复制"后粘贴到微信后台手动发布。认证服务号可使用 Semi-Auto 模式。
+
 ### 4. 验证
 
 ```bash
@@ -217,13 +219,24 @@ POST   /api/system/resume
 - `drift.alert_count > 0` → 存在风格漂移、奖励下降等问题
 - `drift.alerts[].level == "critical"` → 系统已自动降级为 semi-auto 模式
 
-## 评分系统调参
+## 发布策略与评分系统
 
 策略引擎使用加权评分决定是否发布：
 
 ```
-publish_score = 0.30 × time_score + 0.40 × content_score + 0.30 × risk_score
+publish_score = time_weight × time_score + content_weight × content_score + risk_weight × risk_score
 ```
+
+Dashboard Config 标签页提供四个预设策略，无需手动调节权重：
+
+| 策略 | 一句话 |
+|------|------|
+| ⚖ 均衡 | 时间、内容、风险各占 1/3 |
+| 📝 重质量 | 有好内容就发，不太在意时间段 |
+| 🛡 谨慎 | 严格控频，安全第一 |
+| 🚀 激进 | 有内容就发，不等时间窗口 |
+
+展开"高级调节"可手动微调三个权重。
 
 ### time_score 因子
 - 距上次发布时间（< 12h = 0, 12-18h = 0.5, > 18h = 1.0）
@@ -278,12 +291,26 @@ sqlite3 data/wechat.db "INSERT INTO topic_pool (session_id, topic, reason, sourc
 
 启动后在浏览器打开 `http://127.0.0.1:8080/dashboard/`：
 
-- **总览** — 系统状态、发布统计、最近运行
-- **控制** — 手动选题/自动选题、触发流水线、紧急停止
-- **文章** — 查看、审批、删除文章
-- **配置** — 切换运行模式、LLM 提供商、评分参数
-- **健康** — 话题熵值仪表盘、漂移告警
-- **追溯** — 流水线执行详情 DAG
+- **总览** — 系统状态、发布统计、反馈统计（采用率）、最近运行
+- **控制** — 候选话题池（一键生成）、手动选题/自动选题、触发流水线、紧急停止
+- **文章** — 查看（HTML 预览 + Markdown 原文）、审批、删除、一键复制到微信后台、人工反馈（采用/修改/放弃）
+- **配置** — 切换运行模式、LLM 提供商、发布策略（均衡/重质量/谨慎/激进）、话题方向
+- **运行状态** — 流水线成功率、平均 Critic 评分、最近运行明细、漂移告警
+- **执行记录** — 输入 article_id 回放每一步执行过程（DAG 可视化）
+
+### 内容反馈
+
+在"文章"页点开任意一篇，底部有"内容评价"区块。标记每篇文章的最终结果：
+
+- ✅ 直接采用
+- ✏️ 修改后采用
+- ❌ 放弃
+
+可选填备注。总览页会显示今日反馈汇总和采用率。积累 100+ 篇后可用于分析哪些话题/风格更受欢迎。
+
+### 话题方向
+
+在 Config 标签页设定"话题方向"（如 `AI Agent 架构`），之后刷新话题池时 LLM 会聚焦该方向推荐话题。留空则为通用选题。随时可改，无需重启。
 
 ## 数据与备份
 
@@ -295,9 +322,17 @@ sqlite3 data/wechat.db "INSERT INTO topic_pool (session_id, topic, reason, sourc
 
 ## 常见问题
 
+### Q: 话题池为什么是当天新闻？
+
+系统通过 NewsAPI 拉取实时新闻头条作为选题锚点。在 `.env` 中配置 `NEWSAPI_KEY`（免费注册 newsapi.org），话题刷新时自动获取最新新闻生成选题。未配置时回退到 LLM 知识库。
+
+### Q: 订阅号怎么发布文章？
+
+在 Dashboard 文章列表点开文章 → 点"📋 一键复制" → 打开微信公众平台后台编辑器 → Ctrl+V 粘贴 → 手动发布。
+
 ### Q: dry-run 模式生成的文章在哪里看？
 
-查看 `data/previews/` 目录下的 HTML 文件，或通过 API 查询：
+Dashboard 文章列表可直接查看，或通过 API 查询：
 ```bash
 curl http://localhost:8000/api/articles?status=draft | python -m json.tool
 ```

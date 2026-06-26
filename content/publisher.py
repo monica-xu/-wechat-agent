@@ -54,7 +54,7 @@ async def run_publisher(state, runtime) -> dict:
             "error": "",
         }
 
-    # auto mode: publish immediately
+    # auto mode: try publish (may not be available for all account types)
     try:
         publish_id = await client.publish_draft(draft_id)
         if publish_id:
@@ -65,18 +65,18 @@ async def run_publisher(state, runtime) -> dict:
                 "publish_id": publish_id,
                 "error": "",
             }
-        else:
-            return {
-                "status": "draft_only",
-                "draft_id": draft_id,
-                "publish_id": "",
-                "error": "Publish returned empty publish_id",
-            }
     except (WeChatAPIError, WeChatAuthError) as e:
-        logger.error(f"Publish failed: {e}")
+        logger.warning(f"Publish API unavailable (account type restriction): {e}")
         return {
-            "status": "draft_only",
+            "status": "draft_created",
             "draft_id": draft_id,
             "publish_id": "",
-            "error": str(e),
+            "error": f"草稿已创建但API发布不可用，请手动发布。原因: {e}",
         }
+
+    return {
+        "status": "draft_created",
+        "draft_id": draft_id,
+        "publish_id": "",
+        "error": "草稿已创建，请在微信后台手动发布",
+    }

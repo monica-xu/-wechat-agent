@@ -162,6 +162,15 @@ def _create_tables(conn):
             status TEXT DEFAULT 'started',
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         );
+
+        CREATE TABLE IF NOT EXISTS article_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            article_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT '',
+            note TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_feedback_article ON article_feedback(article_id, created_at);
     """)
 
 
@@ -178,6 +187,7 @@ def _seed_config(conn):
         "scoring_weight_content": "0.40",
         "scoring_weight_risk": "0.30",
         "publish_threshold": "0.70",
+        "topic_focus": '""',
     }
     for key, value in defaults.items():
         conn.execute(

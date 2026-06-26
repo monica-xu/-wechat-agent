@@ -116,8 +116,8 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
   <a data-tab="pipeline" onclick="switchTab('pipeline')">▶ 控制</a>
   <a data-tab="articles" onclick="switchTab('articles')">📄 文章</a>
   <a data-tab="config" onclick="switchTab('config')">⚙ 配置</a>
-  <a data-tab="health" onclick="switchTab('health')">❤ 健康</a>
-  <a data-tab="trace" onclick="switchTab('trace')">🔍 追溯</a>
+  <a data-tab="health" onclick="switchTab('health')">📊 运行状态</a>
+  <a data-tab="trace" onclick="switchTab('trace')">📋 执行记录</a>
 </nav>
 
 <header>
@@ -202,12 +202,26 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
       <input type="range" id="cfg-threshold" min="0.3" max="0.95" step="0.01" value="0.70" oninput="onThresholdInput()">
     </div>
     <div class="card" style="margin-bottom:16px">
-      <div class="label">评分权重（总和 = 1.0）</div>
-      <div class="form-row">
-        <div class="form-group"><label>时间 <span id="cfg-wtime-val">0.30</span></label><input type="range" id="cfg-wtime" min="0" max="1" step="0.01" value="0.30" oninput="onWeightInput()"></div>
-        <div class="form-group"><label>内容 <span id="cfg-wcontent-val">0.40</span></label><input type="range" id="cfg-wcontent" min="0" max="1" step="0.01" value="0.40" oninput="onWeightInput()"></div>
-        <div class="form-group"><label>风险 <span id="cfg-wrisk-val">0.30</span></label><input type="range" id="cfg-wrisk" min="0" max="1" step="0.01" value="0.30" oninput="onWeightInput()"></div>
-      </div>
+      <div class="label">发布策略</div>
+      <select id="cfg-strategy" onchange="onStrategyChange()">
+        <option value="balanced">⚖ 均衡 — 时间、内容、风险各占 1/3</option>
+        <option value="quality">📝 重质量 — 有好内容就发，不太在意时间</option>
+        <option value="cautious">🛡 谨慎 — 严格控制频率，安全第一</option>
+        <option value="aggressive">🚀 激进 — 有内容就发，不等待</option>
+      </select>
+      <details style="margin-top:8px">
+        <summary style="cursor:pointer;font-size:12px;color:var(--text-dim)">高级调节</summary>
+        <div class="form-row" style="margin-top:8px">
+          <div class="form-group"><label>时间 <span id="cfg-wtime-val">0.30</span></label><input type="range" id="cfg-wtime" min="0" max="1" step="0.01" value="0.30" oninput="onWeightInput()"></div>
+          <div class="form-group"><label>内容 <span id="cfg-wcontent-val">0.40</span></label><input type="range" id="cfg-wcontent" min="0" max="1" step="0.01" value="0.40" oninput="onWeightInput()"></div>
+          <div class="form-group"><label>风险 <span id="cfg-wrisk-val">0.30</span></label><input type="range" id="cfg-wrisk" min="0" max="1" step="0.01" value="0.30" oninput="onWeightInput()"></div>
+        </div>
+      </details>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="label">话题方向（留空则为通用选题）</div>
+      <input type="text" id="cfg-topic-focus" placeholder="例如：AI技术、科技创投、产品设计..." style="width:100%" oninput="markConfigDirty()">
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px">刷新话题池时，LLM 会聚焦此方向推荐话题</div>
     </div>
     <button class="btn accent" id="cfg-apply" disabled onclick="applyConfig()">应用配置</button>
     <span style="font-size:12px;color:var(--text-dim);margin-left:8px" id="cfg-status"></span>
@@ -215,20 +229,17 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 
   <!-- HEALTH -->
   <div class="panel" id="panel-health">
-    <div class="section-title">系统健康</div>
+    <div class="section-title">运行状态</div>
     <div class="cards" id="health-cards"></div>
-    <div class="section-title">话题熵值</div>
-    <div class="card" style="text-align:center;margin-bottom:16px">
-      <div class="gauge" id="entropy-gauge"><span>--</span></div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:8px" id="entropy-label"></div>
-    </div>
-    <div class="section-title">漂移告警</div>
+    <div class="section-title">最近运行</div>
+    <div id="health-recent-runs"></div>
+    <div class="section-title" style="margin-top:16px">漂移告警</div>
     <div id="drift-alerts"></div>
   </div>
 
   <!-- TRACE -->
   <div class="panel" id="panel-trace">
-    <div class="section-title">流水线追溯</div>
+    <div class="section-title">执行记录</div>
     <div class="form-row">
       <div class="form-group">
         <label>Article ID</label>
@@ -331,12 +342,14 @@ function updateHeader() {
 // ==================== OVERVIEW ====================
 async function initOverview() {
   await fetchWithGuard('overview', async () => {
-    const [health, status, config] = await Promise.all([
+    const [health, status, config, fbStats] = await Promise.all([
       api('GET', '/api/system/health'),
       api('GET', '/api/pipeline/status'),
       api('GET', '/api/config').catch(() => APP.state.config),
+      api('GET', '/api/stats/feedback').catch(() => null),
     ]);
     APP.state.health = health; APP.state.status = status; APP.state.config = config;
+    APP.state.feedbackStats = fbStats;
     renderOverview();
     updateHeader();
   });
@@ -345,18 +358,24 @@ async function initOverview() {
 function renderOverview() {
   const h = APP.state.health || {};
   const s = APP.state.status || {};
+  const fb = APP.state.feedbackStats || {};
   document.getElementById('overview-cards').innerHTML = `
     <div class="card"><div class="label">运行模式</div><div class="value">${APP.state.config.mode}</div></div>
     <div class="card"><div class="label">今日发布</div><div class="value">${h.published_today || 0}<span class="sub">/ 本周 ${h.published_this_week || 0}</span></div></div>
     <div class="card"><div class="label">活跃话题</div><div class="value">${h.active_topics || 0}</div></div>
-    <div class="card"><div class="label">话题熵值</div><div class="value">${(h.topic_entropy || 0).toFixed(3)}<span class="sub">${h.entropy_warning ? '⚠ 过低' : '正常'}</span></div></div>
+    <div class="card"><div class="label">今日反馈</div><div class="value" style="font-size:16px">
+      <span style="color:var(--accent)">✅${fb.adopted||0}</span>
+      <span style="color:var(--blue);margin-left:8px">✏️${fb.edited||0}</span>
+      <span style="color:var(--red);margin-left:8px">❌${fb.rejected||0}</span>
+      <span class="sub">采用率 ${fb.adoption_rate||0}%</span>
+    </div></div>
   `;
   const runs = (s.last_runs || []).slice(0, 5);
   document.getElementById('overview-runs').innerHTML = runs.length
     ? `<table><thead><tr><th>Article ID</th><th>状态</th><th>评分</th><th>时间</th></tr></thead><tbody>
        ${runs.map(r => `<tr>
          <td><a href="#" onclick="switchTab('trace');document.getElementById('trace-input').value='${r.article_id}';loadTrace()" style="color:var(--accent)">${r.article_id}</a></td>
-         <td>${stageBadge(r.final_stage)}</td><td>${(r.critic_score||0).toFixed(2)}</td><td>${(r.created_at||'').slice(0,16)}</td>
+         <td>${stageBadge(r.final_stage)}</td><td>${criticBadge(r.critic_score)}</td><td>${(r.created_at||'').slice(0,16)}</td>
        </tr>`).join('')}</tbody></table>`
     : '<div class="empty"><div class="icon">📭</div>暂无运行记录</div>';
 }
@@ -449,7 +468,7 @@ function renderTriggerResult(result) {
         ID: <strong>${result.article_id}</strong> |
         状态: ${stageBadge(result.final_stage)} |
         话题: ${result.selected_topic || '—'} |
-        Critic: ${result.critic_score?.toFixed(2) || '—'}
+        ${criticBadge(result.critic_score)}
       </div>
       <div style="font-size:13px">标题: ${result.draft_title || '—'}</div>
       <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--accent)">Trace (${(result.trace||[]).length} 条)</summary>
@@ -466,7 +485,7 @@ function renderHistory() {
          <td><a href="#" onclick="switchTab('trace');document.getElementById('trace-input').value='${r.article_id}';loadTrace()" style="color:var(--accent)">${(r.article_id||'').slice(0,12)}</a></td>
          <td>${r.publish_mode || r.human_mode || ''}</td>
          <td>${stageBadge(r.final_stage)}</td>
-         <td>${(r.critic_overall_score||0).toFixed(2)}</td>
+         <td>${criticBadge(r.critic_overall_score)}</td>
          <td>${r.rewrite_count||0}</td>
          <td>${(r.created_at||'').slice(0,16)}</td>
        </tr>`).join('')}</tbody></table>`
@@ -523,7 +542,7 @@ function renderArticleTable() {
       <td><a href="#" onclick="viewArticle('${a.id}')" style="color:var(--accent);max-width:300px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(a.title||'无标题')}</a></td>
       <td>${escHtml(a.topic||'')}</td>
       <td>${statusBadge(a.status)}</td>
-      <td>${(a.critic_overall_score||0).toFixed(2)}</td>
+      <td>${criticBadge(a.critic_overall_score)}</td>
       <td>${(a.created_at||'').slice(0,10)}</td>
       <td>${a.status==='draft'?`<button class="btn" style="font-size:11px;padding:4px 8px" onclick="approveArticle('${a.id}')">✓ 批准</button> <button class="btn red" style="font-size:11px;padding:4px 8px" onclick="rejectArticle('${a.id}')">✗ 拒绝</button>`:''}
           <button class="btn" style="font-size:11px;padding:4px 8px" onclick="deleteArticle('${a.id}')">🗑</button></td>
@@ -547,17 +566,37 @@ async function viewArticle(id) {
       <h2>${escHtml(a.title||'无标题')}</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
         ${badge(a.status, statusBadge)} <span class="badge blue">${escHtml(a.topic||'')}</span>
-        <span style="font-size:12px;color:var(--text-dim)">Critic: ${(a.critic_overall_score||0).toFixed(2)} | 漂移: ${(a.integrity_style_drift||0).toFixed(3)} | 模板: ${a.integrity_template_risk||'low'}</span>
+        <span style="font-size:12px;color:var(--text-dim)">${criticBadge(a.critic_overall_score)}  | 漂移: ${(a.integrity_style_drift||0).toFixed(3)} | 模板: ${a.integrity_template_risk||'low'}</span>
       </div>
       <div class="label">HTML 预览</div>
       ${html ? `<iframe srcdoc="${escAttr(html)}" sandbox=""></iframe>` : '<div class="empty">无HTML内容</div>'}
       <details style="margin-top:12px"><summary style="cursor:pointer;color:var(--accent)">Markdown 原文 (${md.length} 字符)</summary>
         <pre style="background:var(--bg);padding:8px;border-radius:4px;font-size:11px;max-height:300px;overflow-y:auto;margin-top:4px;white-space:pre-wrap">${escHtml(md)}</pre>
       </details>
+      <div class="btn-group" style="margin:12px 0">
+        <button class="btn accent" onclick="copyRichText('${a.id}')">📋 一键复制（粘贴到微信后台）</button>
+        <button class="btn" onclick="copyContent('article-md-${a.id}')">📝 复制 Markdown</button>
+        <span id="copy-msg-${a.id}" style="font-size:12px;color:var(--accent);display:none">✓ 已复制</span>
+      </div>
+      <div id="article-raw-html-${a.id}" style="display:none"></div>
+      <textarea id="article-md-${a.id}" style="display:none">${escHtml(md)}</textarea>
+      <div class="card" style="margin-top:12px">
+        <div class="label">内容评价（帮助系统改进选题和写作）</div>
+        <div class="btn-group">
+          <button class="btn accent" id="fb-adopted-${a.id}" onclick="submitFeedback('${a.id}','adopted')">✅ 直接采用</button>
+          <button class="btn" id="fb-edited-${a.id}" onclick="submitFeedback('${a.id}','edited')">✏️ 修改后采用</button>
+          <button class="btn red" id="fb-rejected-${a.id}" onclick="submitFeedback('${a.id}','rejected')">❌ 放弃</button>
+        </div>
+        <input type="text" id="fb-note-${a.id}" placeholder="备注（可选）：标题改了 / 结构不错 / 话题不合适..." style="width:100%;margin-top:6px">
+        <span id="fb-msg-${a.id}" style="font-size:12px;color:var(--accent);display:none">✓ 已记录</span>
+      </div>
       <div class="modal-actions">
         ${a.status==='draft'?`<button class="btn accent" onclick="approveArticle('${a.id}')">✓ 批准发布</button><button class="btn red" onclick="rejectArticle('${a.id}')">✗ 拒绝</button>`:''}
         <button class="btn" onclick="deleteArticle('${a.id}');closeModal()">🗑 删除</button>
       </div>`;
+    // Populate raw HTML for clipboard copy
+    const rawDiv = document.getElementById('article-raw-html-' + a.id);
+    if (rawDiv && a.content) rawDiv.innerHTML = a.content;
     document.getElementById('modal-overlay').classList.add('show');
   } catch (e) { showToast('加载文章失败: ' + e.message, 'error'); }
 }
@@ -578,6 +617,75 @@ async function deleteArticle(id) {
   if (!confirm('确定删除这篇文章吗？（软删除，可恢复）')) return;
   try { await api('DELETE', '/api/articles/' + id); showToast('已删除', 'success'); loadArticles(); }
   catch (e) { showToast('删除失败: ' + e.message, 'error'); }
+}
+
+async function submitFeedback(articleId, status) {
+  const note = document.getElementById('fb-note-' + articleId)?.value || '';
+  const btns = ['fb-adopted-'+articleId, 'fb-edited-'+articleId, 'fb-rejected-'+articleId];
+  btns.forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
+  try {
+    await api('POST', '/api/articles/' + articleId + '/feedback', { status, note });
+    const msg = document.getElementById('fb-msg-' + articleId);
+    if (msg) { msg.style.display = 'inline'; setTimeout(() => msg.style.display = 'none', 3000); }
+  } catch (e) {
+    showToast('保存失败: ' + e.message, 'error');
+    btns.forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
+  }
+}
+
+async function copyRichText(articleId) {
+  const el = document.getElementById('article-raw-html-' + articleId);
+  if (!el) return;
+  const html = el.innerHTML;
+  try {
+    const blob = new Blob([html], {type: 'text/html'});
+    const item = new ClipboardItem({'text/html': blob});
+    await navigator.clipboard.write([item]);
+  } catch {
+    // Fallback: temporary div
+    const div = document.createElement('div'); div.innerHTML = html;
+    div.style.position = 'fixed'; div.style.left = '-9999px'; document.body.appendChild(div);
+    const range = document.createRange(); range.selectNodeContents(div);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    document.execCommand('copy');
+    sel.removeAllRanges(); document.body.removeChild(div);
+  }
+  const msg = document.getElementById('copy-msg-' + articleId);
+  if (msg) { msg.style.display = 'inline'; setTimeout(() => msg.style.display = 'none', 2000); }
+}
+
+async function copyContent(elId) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const isHtml = elId.startsWith('article-html-');
+  const text = isHtml ? el.innerHTML : el.value;
+  try {
+    if (isHtml) {
+      const blob = new Blob([text], {type: 'text/html'});
+      const item = new ClipboardItem({'text/html': blob, 'text/plain': new Blob([text.replace(/<[^>]*>/g,'')], {type: 'text/plain'})});
+      await navigator.clipboard.write([item]);
+    } else {
+      await navigator.clipboard.writeText(text);
+    }
+    const articleId = elId.split('-').pop();
+    const msg = document.getElementById('copy-msg-' + articleId);
+    if (msg) { msg.style.display = 'inline'; setTimeout(() => msg.style.display = 'none', 2000); }
+  } catch {
+    // Fallback: select and execCommand
+    if (isHtml) {
+      const div = document.createElement('div'); div.innerHTML = text; document.body.appendChild(div);
+      const range = document.createRange(); range.selectNodeContents(div);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    } else {
+      const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta);
+      ta.select();
+    }
+    document.execCommand('copy');
+    document.body.removeChild(document.body.lastChild);
+    const articleId = elId.split('-').pop();
+    const msg = document.getElementById('copy-msg-' + articleId);
+    if (msg) { msg.style.display = 'inline'; setTimeout(() => msg.style.display = 'none', 2000); }
+  }
 }
 
 function closeModal() { document.getElementById('modal-overlay').classList.remove('show'); }
@@ -611,6 +719,10 @@ function renderConfig() {
   document.getElementById('cfg-wtime-val').textContent = w.time.toFixed(2);
   document.getElementById('cfg-wcontent-val').textContent = w.content.toFixed(2);
   document.getElementById('cfg-wrisk-val').textContent = w.risk.toFixed(2);
+  const strategy = detectStrategy(w.time, w.content, w.risk);
+  document.getElementById('cfg-strategy').value = strategy || '';
+  if (strategy) document.getElementById('cfg-strategy').selectedIndex = Object.keys(STRATEGIES).indexOf(strategy);
+  document.getElementById('cfg-topic-focus').value = c.topic_focus || '';
   APP.configDirty = false;
   document.getElementById('cfg-apply').disabled = true;
   document.getElementById('cfg-status').textContent = '';
@@ -633,6 +745,29 @@ function onThresholdInput() {
   markConfigDirty();
 }
 
+const STRATEGIES = {
+  balanced:   { time: 0.33, content: 0.34, risk: 0.33, label: '均衡' },
+  quality:    { time: 0.20, content: 0.60, risk: 0.20, label: '重质量' },
+  cautious:   { time: 0.25, content: 0.30, risk: 0.45, label: '谨慎' },
+  aggressive: { time: 0.15, content: 0.55, risk: 0.30, label: '激进' },
+};
+
+function onStrategyChange() {
+  const key = document.getElementById('cfg-strategy').value;
+  const s = STRATEGIES[key];
+  document.getElementById('cfg-wtime').value = s.time;
+  document.getElementById('cfg-wcontent').value = s.content;
+  document.getElementById('cfg-wrisk').value = s.risk;
+  onWeightInput(); // update display + mark dirty
+}
+
+function detectStrategy(tw, cw, rw) {
+  for (const [key, s] of Object.entries(STRATEGIES)) {
+    if (Math.abs(s.time - tw) < 0.02 && Math.abs(s.content - cw) < 0.02 && Math.abs(s.risk - rw) < 0.02) return key;
+  }
+  return ''; // custom
+}
+
 function onWeightInput() {
   document.getElementById('cfg-wtime-val').textContent = parseFloat(document.getElementById('cfg-wtime').value).toFixed(2);
   document.getElementById('cfg-wcontent-val').textContent = parseFloat(document.getElementById('cfg-wcontent').value).toFixed(2);
@@ -650,6 +785,7 @@ async function applyConfig() {
     time_weight: parseFloat(document.getElementById('cfg-wtime').value),
     content_weight: parseFloat(document.getElementById('cfg-wcontent').value),
     risk_weight: parseFloat(document.getElementById('cfg-wrisk').value),
+    topic_focus: document.getElementById('cfg-topic-focus').value,
   };
   try {
     const canonical = await api('PUT', '/api/config', payload);
@@ -677,34 +813,48 @@ async function initHealth() {
 
 function renderHealth() {
   const h = APP.state.health || {};
+  const s = APP.state.status || {};
+
+  // Compute pipeline success rate from recent history
+  const runs = s.last_runs || [];
+  const successCount = runs.filter(r => r.final_stage === 'done').length;
+  const successRate = runs.length ? Math.round(successCount / runs.length * 100) : '—';
+  // Compute average critic score
+  const scores = runs.filter(r => r.critic_score > 0).map(r => r.critic_score);
+  const avgScore = scores.length ? (scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(2) : '—';
+
   document.getElementById('health-cards').innerHTML = `
+    <div class="card"><div class="label">流水线成功率</div><div class="value" style="color:${successRate===100?'var(--accent)':successRate>=70?'var(--yellow)':'var(--red)'}">${successRate}%</div><div class="sub">最近 ${runs.length} 次</div></div>
+    <div class="card"><div class="label">平均 Critic 评分</div><div class="value">${avgScore}</div><div class="sub">最近 ${scores.length} 次</div></div>
+    <div class="card"><div class="label">今日/本周发布</div><div class="value">${h.published_today||0}<span class="sub"> / ${h.published_this_week||0}</span></div></div>
     <div class="card"><div class="label">紧急停止</div><div class="value" style="color:${h.kill_switch_active?'var(--red)':'var(--accent)'}">${h.kill_switch_active ? '已激活' : '正常'}</div></div>
-    <div class="card"><div class="label">发布统计</div><div class="value">${h.published_today||0}<span class="sub">今日 / ${h.published_this_week||0} 本周</span></div></div>
-    <div class="card"><div class="label">活跃话题</div><div class="value">${h.active_topics||0}</div></div>
-    <div class="card"><div class="label">漂移告警</div><div class="value" style="color:${(h.drift?.alert_count||0)>0?'var(--yellow)':'var(--accent)'}">${h.drift?.alert_count||0}</div></div>
   `;
-  // Entropy gauge
-  const entropy = h.topic_entropy || 0;
-  const gaugeEl = document.getElementById('entropy-gauge');
-  const angle = entropy * 360;
-  gaugeEl.style.background = `conic-gradient(${entropy<0.2?'var(--red)':entropy<0.35?'var(--yellow)':'var(--accent)'} ${angle}deg, var(--border) ${angle}deg)`;
-  gaugeEl.querySelector('span').textContent = entropy.toFixed(3);
-  document.getElementById('entropy-label').textContent = entropy < 0.2 ? '⚠ 严重坍缩' : entropy < 0.35 ? '⚡ 偏低' : '✓ 正常';
-  // Drift alerts
+
+  // Recent runs table
+  document.getElementById('health-recent-runs').innerHTML = runs.length
+    ? `<table><thead><tr><th>Article ID</th><th>状态</th><th>Critic</th><th>时间</th></tr></thead><tbody>
+       ${runs.map(r => `<tr>
+         <td><a href="#" onclick="switchTab('trace');document.getElementById('trace-input').value='${r.article_id}';loadTrace()" style="color:var(--accent)">${(r.article_id||'').slice(0,12)}</a></td>
+         <td>${stageBadge(r.final_stage)}</td><td>${criticBadge(r.critic_score)}</td><td>${(r.created_at||'').slice(0,16)}</td>
+       </tr>`).join('')}</tbody></table>`
+    : '<div class="empty">暂无运行记录</div>';
+
+  // Drift alerts (collapsed by default)
   const alerts = h.drift?.alerts || [];
   document.getElementById('drift-alerts').innerHTML = alerts.length
-    ? `<table><thead><tr><th>级别</th><th>类型</th><th>消息</th><th>动作</th></tr></thead><tbody>
+    ? `<details><summary style="cursor:pointer;color:var(--yellow)">⚠ ${alerts.length} 条漂移告警</summary>
+       <table style="margin-top:8px"><thead><tr><th>级别</th><th>类型</th><th>消息</th></tr></thead><tbody>
        ${alerts.map(a => `<tr>
          <td>${a.level==='critical'?'<span class="badge red">严重</span>':'<span class="badge yellow">警告</span>'}</td>
-         <td>${escHtml(a.type||'')}</td><td>${escHtml(a.message||'')}</td><td>${escHtml(a.action||'')}</td>
-       </tr>`).join('')}</tbody></table>`
-    : '<div class="empty"><div class="icon">✅</div>无漂移告警</div>';
+         <td>${escHtml(a.type||'')}</td><td style="font-size:12px">${escHtml(a.message||'')}</td>
+       </tr>`).join('')}</tbody></table></details>`
+    : '';
 }
 
 // ==================== TRACE ====================
 async function initTrace() {
   // Trace tab is lazy — user must input an article_id
-  document.getElementById('trace-result').innerHTML = '<div class="empty"><div class="icon">🔍</div>输入 article_id 查看流水线执行详情</div>';
+  document.getElementById('trace-result').innerHTML = '<div class="empty"><div class="icon">📋</div>输入 article_id 查看每一步执行过程</div>';
 }
 
 async function loadTrace() {
@@ -777,6 +927,15 @@ function statusBadge(s) {
 function stageIcon(s) {
   const icons = { decide: '🧠', generate: '✍', review: '🔍', publish: '📤', feedback: '🔄' };
   return icons[s] || '•';
+}
+
+function criticBadge(score) {
+  if (score == null || score === 0) return '<span class="badge">—</span>';
+  if (score >= 0.90) return `<span class="badge green" title="可直接发布">${score.toFixed(2)} 优秀</span>`;
+  if (score >= 0.80) return `<span class="badge green" title="通过评审">${score.toFixed(2)} 良好</span>`;
+  if (score >= 0.70) return `<span class="badge yellow" title="通过但建议改进">${score.toFixed(2)} 一般</span>`;
+  if (score >= 0.60) return `<span class="badge yellow" title="需要修改">${score.toFixed(2)} 偏低</span>`;
+  return `<span class="badge red" title="不应发布">${score.toFixed(2)} 不建议</span>`;
 }
 
 function badge(val, fn) { return fn ? fn(val) : val; }

@@ -25,6 +25,7 @@ class ConfigPayload(BaseModel):
     time_weight: float | None = None
     content_weight: float | None = None
     risk_weight: float | None = None
+    topic_focus: str | None = None
 
 
 @router.get("/config")
@@ -40,11 +41,14 @@ async def get_config(session_id: str = ""):
     publish_cron = RuntimeConfig.get("publish_schedule_cron", "0 9 * * 1-5")
     topic_cron = RuntimeConfig.get("topic_refresh_cron", "0 8 * * 1-5")
 
+    topic_focus = RuntimeConfig.get("topic_focus", "")
+
     return {
         "mode": mode,
         "provider": provider,
         "schedule": {"publish_cron": publish_cron, "topic_cron": topic_cron},
         "scoring": {"threshold": threshold, "weights": weights},
+        "topic_focus": topic_focus,
     }
 
 
@@ -89,6 +93,10 @@ async def set_config(payload: ConfigPayload):
         RC.set("scoring_weight_content", str(round(cw, 4)))
         RC.set("scoring_weight_risk", str(round(rw, 4)))
         changed.append("weights")
+
+    if payload.topic_focus is not None:
+        RC.set("topic_focus", payload.topic_focus)
+        changed.append("topic_focus")
 
     # Return the canonical state after commit
     return await get_config()

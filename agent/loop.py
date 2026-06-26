@@ -178,7 +178,11 @@ async def handle_generate(state: ArticleState, runtime: AgentRuntime) -> Article
         return state
 
     state.draft_title = writer_result.get("title", "")
-    state.draft_content_markdown = writer_result.get("content_markdown", "")
+    raw_md = writer_result.get("content_markdown", "")
+    # Strip 【PLAN】 section — keep only 【正文】 for formatting/publishing
+    if "【正文】" in raw_md:
+        raw_md = raw_md.split("【正文】", 1)[-1].strip()
+    state.draft_content_markdown = raw_md
     state.generate_trace["writer"] = writer_result
     state.llm_call_count += 1
     runtime.llm_call_count += 1
@@ -320,7 +324,10 @@ async def _rewrite_and_return(state: ArticleState, runtime: AgentRuntime) -> Art
     try:
         rewrite_result = await run_rewrite(state, runtime)
         state.draft_title = rewrite_result.get("title", state.draft_title)
-        state.draft_content_markdown = rewrite_result.get("content_markdown", state.draft_content_markdown)
+        raw_md = rewrite_result.get("content_markdown", state.draft_content_markdown)
+        if "【正文】" in raw_md:
+            raw_md = raw_md.split("【正文】", 1)[-1].strip()
+        state.draft_content_markdown = raw_md
         state.generate_trace["writer"] = rewrite_result
         state.llm_call_count += 1
         runtime.llm_call_count += 1

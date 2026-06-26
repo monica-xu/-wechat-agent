@@ -18,3 +18,4 @@ venv/
 *.log
 .claude/
 *agentai*.txt
+.claude/doc-reminder.txt

@@ -78,6 +78,15 @@ def get_all_embeddings(session_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def clear_topic_pool(session_id: str) -> None:
+    """Deactivate all topics in the pool for a session (before refresh)."""
+    with _db() as conn:
+        conn.execute(
+            "UPDATE topic_pool SET is_active = 0 WHERE session_id = ?",
+            (session_id,),
+        )
+
+
 def save_topic_pool(session_id: str, topics: list[dict]) -> None:
     """Batch-insert candidate topics."""
     with _db() as conn:

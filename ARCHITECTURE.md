@@ -180,11 +180,48 @@ state.topic       run_topic()
             ▼                              │
        [FEEDBACK] ←────────────────────────┘
             │
-            ▼
-         [DONE]
+       ┌────┴────┐
+       │         │
+   [DONE]   [HUMAN FEEDBACK]
+                adopted/edited/rejected
+                       │
+                  feedback DB
+                       │
+              (future: Sprint 6 analysis)
 ```
 
-## 3. Data Flow — Article Production
+## 3. Topic Pipeline (Sprint 4)
+
+```
+NewsAPI (real-time headlines)
+    ↓
+10 English headlines
+    ↓
+Tension Extractor (LLM, temp=0.7)
+    → 5 tensions {shift, conflict, statement}
+    ↓
+Topic Generator (LLM, temp=0.6)
+    → 5 topics with anchor + style constraints
+    ↓
+Topic Pool DB (clear_topic_pool → save_topic_pool)
+```
+
+Anchor distribution: 2 role + 2 scene + 1 mechanism per batch. Anti-news vocabulary filter: no 发布/上线/财报/涨跌.
+
+## 4. Writer v3 — Slot-Bound Structure (Sprint 1-3)
+
+```
+WRITER_SYSTEM_PROMPT v3:
+  Step 1: Generate 【PLAN】 with {id, title, thesis, type}
+          type ∈ {argument, example, explanation}
+  Step 2: Execute 【正文】 — fill each slot by type constraint
+          argument → 观点+推理 only
+          example → 案例+解释 only
+          explanation → 机制解释 only
+  PLAN stripped before formatter (loop.py)
+```
+
+## 5. Data Flow — Article Production
 
 ```
 Topic Pool DB                    Persona DB
@@ -242,7 +279,7 @@ Topic Pool DB                    Persona DB
           └──────────────┘
 ```
 
-## 4. Four Feedback Loops
+## 6. Four System Loops
 
 ### 🔁 Loop 1: Topic Learning (Optimization)
 
@@ -343,6 +380,10 @@ wechat-agent/
 │   ├── drift.py              System state vector + auto-correction
 │   └── memory.py             Embeddings, similarity search, topic cooldown
 │
+├── api/routes/articles.py    FEEDBACK LAYER (Sprint 5)
+│   └── /feedback endpoints   Human decision: adopted/edited/rejected
+│                             Data collection only — no auto-learning
+│
 ├── infra/                    INFRASTRUCTURE
 │   ├── llm.py                Multi-provider LLM client (DeepSeek/GPT/Claude)
 │   ├── scheduler.py          APScheduler + DB job locks
@@ -367,9 +408,12 @@ wechat-agent/
 │
 ├── tools/                    TOOL REGISTRY
 │   ├── registry.py           JSON Schema definitions + keyword selection
-│   ├── research.py           Search tools
+│   ├── research.py           NewsAPI-powered search + LLM fallback
 │   ├── memory.py             Content memory query tools
 │   └── wechat.py             Publish statistics tools
+│
+├── db/                       STORAGE (continued)
+│   └── article_feedback      Human decision recording (adopted/edited/rejected)
 │
 └── data/                     RUNTIME DATA (gitignored)
     ├── wechat.db             SQLite database

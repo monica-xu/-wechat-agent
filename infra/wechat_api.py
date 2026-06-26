@@ -120,9 +120,11 @@ class WeChatClient:
         body = {
             "articles": [{
                 "title": title[:64],
-                "content": content,
+                "author": "",
                 "digest": digest[:120] if digest else "",
+                "content": content,
                 "content_source_url": "",
+                "thumb_media_id": "",
                 "need_open_comment": need_open_comment,
                 "only_fans_can_comment": only_fans_can_comment,
             }]

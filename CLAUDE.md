@@ -155,7 +155,7 @@ SQLite with WAL mode, stored at `data/wechat.db`. Tables:
 - `runtime_config` — mutable key-value config persisted across restarts
 - `job_locks` / `pipeline_runs` — idempotency and deduplication
 
-`RuntimeConfig` (`db/_config.py`) wraps the `runtime_config` table with typed getters for scoring weights, thresholds, human mode, and LLM provider. JSON values are auto-serialized.
+`RuntimeConfig` (`db/_config.py`) wraps the `runtime_config` table with typed getters for scoring weights, thresholds, human mode, LLM provider, and `topic_focus`. JSON values are auto-serialized. `topic_focus` controls the direction of topic pool refresh — when set (e.g. "AI Agent 架构"), the LLM focuses topic recommendations on that area; when empty, topics are general-interest.
 
 ### Persona Layer (`content/persona.py`)
 
@@ -223,9 +223,35 @@ Async httpx client with automatic access_token refresh (double-checked locking, 
 - `/api/config/*` — human mode, schedule, LLM provider, scoring params
 - `/api/webhook/*` — WeChat message webhook receiver
 
+### Writer v3 — Slot-Bound Structured Writing (`agent/prompts.py`)
+
+The WRITER_SYSTEM_PROMPT evolved through three iterations to control output quality:
+- v1: Format constraints (section count, word limits)
+- v2: Plan-then-execute (【写作提纲】before【正文】)
+- **v3 (current)**: Slot-bound contract — each section declares a type (argument/example/explanation) and the writer fills each slot according to its type constraint. Sections must be semantically exclusive.
+
+### Topic Pipeline — News-Driven with Tension Extraction (`content/topic.py`)
+
+Topic generation uses a two-pass LLM flow:
+1. **NewsAPI** → fetches real-time headlines (falls back to LLM knowledge base if key not configured)
+2. **Pass 1: Tension extraction** — LLM extracts structural conflicts from news (shift + conflict + statement)
+3. **Pass 2: Topic generation** — LLM converts tensions into WeChat-style topics with anchor constraints (role/scene/behavior per topic), style distribution control (2 role + 2 scene + 1 mechanism), and anti-news vocabulary filter
+
+Topic pool is cleared before each refresh. Configurable via `topic_focus` in RuntimeConfig.
+
+### Feedback Layer (`api/routes/articles.py`, `db/_base.py`)
+
+Human decision recording for every generated article. `article_feedback` table stores status (adopted/edited/rejected) + optional note. Dashboard article modal has one-click feedback buttons. Overview tab shows today's adoption rate.
+
+API: `POST /api/articles/{id}/feedback` + `GET /api/stats/feedback`. No auto-learning — pure data collection for future analysis.
+
+### WeChat Publishing Notes
+
+Subscription accounts (订阅号) cannot publish via API. The approval flow creates a draft on WeChat servers; the user publishes manually from the WeChat backend. Dashboard provides one-click rich-text copy for pasting into the WeChat editor. Service accounts (认证服务号) support full API publish.
+
 ### Tools (`tools/`)
 
-Tool registry with JSON Schema definitions for LLM function-calling. Keyword-based selection via Chinese regex matching (mirrors ai-invest-agent pattern). Categories: research, memory, wechat.
+Tool registry with JSON Schema definitions for LLM function-calling. Keyword-based selection via Chinese regex matching. Categories: research (NewsAPI-powered trending + news search), memory, wechat.
 
 ### Retry Policy (`infra/retry.py`)
 
