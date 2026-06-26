@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WeChat Agent Dashboard</title>
+<style>
+:root {
+  --bg: #0f172a; --bg-card: #1e293b; --bg-sidebar: #0b1120;
+  --text: #e2e8f0; --text-muted: #94a3b8; --text-dim: #64748b;
+  --accent: #07c160; --accent-dim: #059649;
+  --red: #ef4444; --yellow: #f59e0b; --blue: #3b82f6;
+  --border: #334155; --radius: 8px; --gap: 16px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font: 14px/1.6 -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); display: flex; min-height: 100vh; }
+/* Sidebar */
+nav { width: 220px; background: var(--bg-sidebar); padding: 20px 0; display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; z-index: 10; }
+nav h1 { font-size: 15px; color: var(--accent); padding: 0 20px 24px; letter-spacing: 0.5px; }
+nav a { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: var(--text-muted); text-decoration: none; font-size: 13px; cursor: pointer; transition: .15s; border-left: 3px solid transparent; }
+nav a:hover { color: var(--text); background: rgba(255,255,255,.04); }
+nav a.active { color: var(--accent); background: rgba(7,193,96,.08); border-left-color: var(--accent); }
+/* Header */
+header { position: fixed; top: 0; left: 220px; right: 0; height: 52px; background: var(--bg-card); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; z-index: 5; }
+header .status { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+header .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+header .dot.ok { background: var(--accent); }
+header .dot.warn { background: var(--yellow); }
+header .dot.bad { background: var(--red); }
+/* Main */
+main { margin-left: 220px; margin-top: 52px; padding: 24px; flex: 1; }
+.panel { display: none; }
+.panel.active { display: block; }
+/* Cards */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--gap); margin-bottom: 24px; }
+.card { background: var(--bg-card); border-radius: var(--radius); padding: 18px; border: 1px solid var(--border); }
+.card .label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.card .value { font-size: 24px; font-weight: 600; }
+.card .sub { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+/* Tables */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+th { color: var(--text-muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+tr:hover { background: rgba(255,255,255,.02); }
+/* Badges */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
+.badge.green { background: rgba(7,193,96,.15); color: var(--accent); }
+.badge.red { background: rgba(239,68,68,.15); color: var(--red); }
+.badge.yellow { background: rgba(245,158,11,.15); color: var(--yellow); }
+.badge.blue { background: rgba(59,130,246,.15); color: var(--blue); }
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); transition: .15s; }
+.btn:hover { background: var(--border); }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.accent:hover { background: var(--accent-dim); }
+.btn.red { background: var(--red); border-color: var(--red); color: #fff; }
+.btn.red:hover { background: #dc2626; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+/* Forms */
+label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+select, input[type=range], input[type=text] { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.form-row { display: flex; gap: var(--gap); align-items: end; margin-bottom: 12px; }
+.form-group { flex: 1; }
+/* Toast */
+#toast { position: fixed; top: 64px; right: 24px; z-index: 100; display: flex; flex-direction: column; gap: 8px; }
+.toast-msg { padding: 10px 18px; border-radius: 6px; font-size: 13px; animation: slideIn .3s; max-width: 360px; }
+.toast-msg.success { background: #065f46; color: #d1fae5; }
+.toast-msg.error { background: #7f1d1d; color: #fecaca; }
+@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+/* Modal */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 50; align-items: center; justify-content: center; }
+.modal-overlay.show { display: flex; }
+.modal { background: var(--bg-card); border-radius: var(--radius); padding: 24px; max-width: 800px; max-height: 85vh; overflow-y: auto; width: 90%; border: 1px solid var(--border); }
+.modal h2 { margin-bottom: 16px; font-size: 18px; }
+.modal .close { float: right; background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; }
+.modal iframe { width: 100%; height: 500px; border: 1px solid var(--border); border-radius: 4px; background: #fff; margin: 12px 0; }
+/* Gauge */
+.gauge { width: 120px; height: 120px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 700; margin: 0 auto; position: relative; }
+.gauge::before { content: ''; position: absolute; inset: 8px; border-radius: 50%; background: var(--bg-card); }
+.gauge span { position: relative; z-index: 1; }
+/* Trace DAG */
+.dag { display: flex; align-items: flex-start; gap: 0; overflow-x: auto; padding: 16px 0; }
+.dag-node { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; min-width: 160px; }
+.dag-node.pass { border-color: var(--accent); }
+.dag-node.fail { border-color: var(--red); }
+.dag-node .stage-name { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+.dag-node .stage-detail { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
+.dag-arrow { display: flex; align-items: center; padding: 0 8px; color: var(--text-dim); font-size: 18px; flex-shrink: 0; }
+/* Tab section title */
+.section-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: var(--text); }
+/* Empty state */
+.empty { text-align: center; padding: 48px; color: var(--text-dim); }
+.empty .icon { font-size: 48px; margin-bottom: 12px; }
+/* Loading */
+.loading { text-align: center; padding: 24px; color: var(--text-dim); }
+.spinner { display: inline-block; width: 24px; height: 24px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* Trace expander */
+.expander { cursor: pointer; user-select: none; }
+.expander:hover { color: var(--accent); }
+.trace-detail { display: none; margin-top: 8px; font-size: 12px; color: var(--text-muted); background: var(--bg); padding: 10px; border-radius: 4px; overflow-x: auto; }
+.trace-detail.open { display: block; }
+/* Empty state for trace */
+.trace-empty { padding: 16px; text-align: center; color: var(--text-dim); font-size: 13px; }
+/* Article preview actions */
+.modal-actions { display: flex; gap: 8px; margin-top: 16px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <h1>🤖 WeChat Agent</h1>
+  <a data-tab="overview" class="active" onclick="switchTab('overview')">▣ 总览</a>
+  <a data-tab="pipeline" onclick="switchTab('pipeline')">▶ 控制</a>
+  <a data-tab="articles" onclick="switchTab('articles')">📄 文章</a>
+  <a data-tab="config" onclick="switchTab('config')">⚙ 配置</a>
+  <a data-tab="health" onclick="switchTab('health')">❤ 健康</a>
+  <a data-tab="trace" onclick="switchTab('trace')">🔍 追溯</a>
+</nav>
+
+<header>
+  <div class="status">
+    <span class="dot ok" id="header-dot"></span>
+    <span id="header-text">加载中...</span>
+  </div>
+  <div style="font-size:12px;color:var(--text-dim)" id="header-time"></div>
+</header>
+
+<main>
+  <!-- OVERVIEW -->
+  <div class="panel active" id="panel-overview">
+    <div class="section-title">系统总览</div>
+    <div class="cards" id="overview-cards"></div>
+    <div class="section-title">最近运行</div>
+    <div id="overview-runs"></div>
+  </div>
+
+  <!-- PIPELINE -->
+  <div class="panel" id="panel-pipeline">
+    <div class="section-title">流水线控制</div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="label">选题（可选 — 留空则自动选题）</div>
+      <div class="form-row">
+        <div class="form-group"><label>Topic</label><input type="text" id="topic-input" placeholder="留空则自动选题" style="width:100%"></div>
+        <div class="form-group"><label>Angle（角度）</label><input type="text" id="angle-input" placeholder="可选" style="width:100%"></div>
+      </div>
+      <div id="candidate-topics" style="margin-top:8px;font-size:12px;color:var(--text-muted)"></div>
+      <div class="btn-group" style="margin-top:12px">
+        <button class="btn" id="btn-dry" onclick="triggerPipeline('dry-run')">🖊 Dry Run</button>
+        <button class="btn" id="btn-semi" onclick="triggerPipeline('semi-auto')">👁 Semi-Auto</button>
+        <button class="btn accent" id="btn-auto" onclick="triggerPipeline('auto')">🚀 Auto</button>
+        <button class="btn red" onclick="triggerPipeline(APP.state.config?.mode||'dry-run', true)">⚡ Force</button>
+      </div>
+      <label style="margin-top:8px"><input type="checkbox" id="chk-force"> 强制模式（跳过策略引擎评分）</label>
+    </div>
+    <div id="trigger-result"></div>
+    <div class="section-title" style="margin-top:20px">紧急控制</div>
+    <div class="btn-group">
+      <button class="btn red" id="btn-kill" onclick="toggleKillSwitch()">🛑 紧急停止</button>
+      <button class="btn" id="btn-resume" onclick="resumeSystem()" style="display:none">▶ 恢复运行</button>
+    </div>
+    <div class="section-title" style="margin-top:20px">运行历史</div>
+    <div id="pipeline-history"></div>
+  </div>
+
+  <!-- ARTICLES -->
+  <div class="panel" id="panel-articles">
+    <div class="section-title">文章管理</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>状态筛选</label>
+        <select id="article-filter" onchange="loadArticles()">
+          <option value="">全部</option><option value="draft">草稿</option>
+          <option value="published">已发布</option><option value="rejected">已拒绝</option>
+        </select>
+      </div>
+      <button class="btn" onclick="loadArticles()">刷新</button>
+    </div>
+    <div id="articles-table"></div>
+    <div id="articles-pagination" style="margin-top:12px;display:flex;gap:8px;align-items:center"></div>
+  </div>
+
+  <!-- CONFIG -->
+  <div class="panel" id="panel-config">
+    <div class="section-title">系统配置</div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="label">运行模式</div>
+      <div class="btn-group" id="cfg-mode"></div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="label">LLM 提供商</div>
+      <select id="cfg-provider" onchange="markConfigDirty()">
+        <option value="deepseek">DeepSeek</option>
+        <option value="openai">OpenAI</option>
+        <option value="claude">Claude</option>
+      </select>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="label">发布阈值: <strong id="cfg-threshold-val">0.70</strong></div>
+      <input type="range" id="cfg-threshold" min="0.3" max="0.95" step="0.01" value="0.70" oninput="onThresholdInput()">
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="label">评分权重（总和 = 1.0）</div>
+      <div class="form-row">
+        <div class="form-group"><label>时间 <span id="cfg-wtime-val">0.30</span></label><input type="range" id="cfg-wtime" min="0" max="1" step="0.01" value="0.30" oninput="onWeightInput()"></div>
+        <div class="form-group"><label>内容 <span id="cfg-wcontent-val">0.40</span></label><input type="range" id="cfg-wcontent" min="0" max="1" step="0.01" value="0.40" oninput="onWeightInput()"></div>
+        <div class="form-group"><label>风险 <span id="cfg-wrisk-val">0.30</span></label><input type="range" id="cfg-wrisk" min="0" max="1" step="0.01" value="0.30" oninput="onWeightInput()"></div>
+      </div>
+    </div>
+    <button class="btn accent" id="cfg-apply" disabled onclick="applyConfig()">应用配置</button>
+    <span style="font-size:12px;color:var(--text-dim);margin-left:8px" id="cfg-status"></span>
+  </div>
+
+  <!-- HEALTH -->
+  <div class="panel" id="panel-health">
+    <div class="section-title">系统健康</div>
+    <div class="cards" id="health-cards"></div>
+    <div class="section-title">话题熵值</div>
+    <div class="card" style="text-align:center;margin-bottom:16px">
+      <div class="gauge" id="entropy-gauge"><span>--</span></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:8px" id="entropy-label"></div>
+    </div>
+    <div class="section-title">漂移告警</div>
+    <div id="drift-alerts"></div>
+  </div>
+
+  <!-- TRACE -->
+  <div class="panel" id="panel-trace">
+    <div class="section-title">流水线追溯</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Article ID</label>
+        <input type="text" id="trace-input" placeholder="输入 article_id..." style="width:280px">
+      </div>
+      <button class="btn" onclick="loadTrace()">查看</button>
+      <span style="font-size:12px;color:var(--text-dim)">（可从运行历史中点击 article_id 自动填充）</span>
+    </div>
+    <div id="trace-result"></div>
+  </div>
+</main>
+
+<div id="toast"></div>
+<div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modal-content"></div>
+</div>
+
+<script>
+// ==================== API Client ====================
+const BASE = '';
+async function api(method, path, body = null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(BASE + path, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// ==================== State ====================
+const APP = {
+  state: {
+    health: null, status: null, history: [],
+    articles: { items: [], count: 0 },
+    config: { mode: 'dry-run', provider: 'deepseek', threshold: 0.7, weights: { time: 0.3, content: 0.4, risk: 0.3 } },
+    traceData: null,
+  },
+  activeTab: 'overview',
+  polling: {},
+  lastFetch: {},
+  inFlight: {},
+  configDirty: false,
+  killActive: false,
+};
+
+// ==================== Stale-while-revalidate ====================
+async function fetchWithGuard(key, fn, minInterval = 2000) {
+  const now = Date.now();
+  if (APP.inFlight[key]) return;
+  const stale = APP.lastFetch[key] && (now - APP.lastFetch[key]) < minInterval;
+  if (stale) return;
+  APP.inFlight[key] = true;
+  try { await fn(); APP.lastFetch[key] = Date.now(); }
+  catch (e) { console.warn(`fetch ${key} failed:`, e.message); }
+  finally { APP.inFlight[key] = false; }
+}
+
+// ==================== Toast ====================
+function showToast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast-msg ${type}`;
+  el.textContent = msg;
+  document.getElementById('toast').appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+// ==================== Navigation ====================
+function switchTab(name) {
+  APP.activeTab = name;
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+  document.querySelector(`nav a[data-tab="${name}"]`).classList.add('active');
+  location.hash = name;
+  // Stop old polling
+  Object.values(APP.polling).forEach(clearInterval);
+  APP.polling = {};
+  // Init tab (stale-while-revalidate: render immediately, refresh in background)
+  const initMap = { overview: initOverview, pipeline: initPipeline, articles: initArticles, config: initConfig, health: initHealth, trace: initTrace };
+  if (initMap[name]) initMap[name]();
+  // Start polling for live tabs
+  if (name === 'overview') APP.polling.overview = setInterval(initOverview, 5000);
+  if (name === 'health') APP.polling.health = setInterval(initHealth, 5000);
+}
+
+// ==================== Header ====================
+function updateHeader() {
+  const h = APP.state.health;
+  const s = APP.state.status;
+  const dot = document.getElementById('header-dot');
+  const txt = document.getElementById('header-text');
+  if (h && h.kill_switch_active) { dot.className = 'dot bad'; txt.textContent = '紧急停止中'; }
+  else if (h && h.drift && h.drift.alert_count > 0) { dot.className = 'dot warn'; txt.textContent = `模式: ${APP.state.config.mode} ⚠ ${h.drift.alert_count} 告警`; }
+  else { dot.className = 'dot ok'; txt.textContent = `模式: ${APP.state.config.mode} ● 正常`; }
+  document.getElementById('header-time').textContent = new Date().toLocaleTimeString('zh-CN');
+}
+
+// ==================== OVERVIEW ====================
+async function initOverview() {
+  await fetchWithGuard('overview', async () => {
+    const [health, status, config] = await Promise.all([
+      api('GET', '/api/system/health'),
+      api('GET', '/api/pipeline/status'),
+      api('GET', '/api/config').catch(() => APP.state.config),
+    ]);
+    APP.state.health = health; APP.state.status = status; APP.state.config = config;
+    renderOverview();
+    updateHeader();
+  });
+}
+
+function renderOverview() {
+  const h = APP.state.health || {};
+  const s = APP.state.status || {};
+  document.getElementById('overview-cards').innerHTML = `
+    <div class="card"><div class="label">运行模式</div><div class="value">${APP.state.config.mode}</div></div>
+    <div class="card"><div class="label">今日发布</div><div class="value">${h.published_today || 0}<span class="sub">/ 本周 ${h.published_this_week || 0}</span></div></div>
+    <div class="card"><div class="label">活跃话题</div><div class="value">${h.active_topics || 0}</div></div>
+    <div class="card"><div class="label">话题熵值</div><div class="value">${(h.topic_entropy || 0).toFixed(3)}<span class="sub">${h.entropy_warning ? '⚠ 过低' : '正常'}</span></div></div>
+  `;
+  const runs = (s.last_runs || []).slice(0, 5);
+  document.getElementById('overview-runs').innerHTML = runs.length
+    ? `<table><thead><tr><th>Article ID</th><th>状态</th><th>评分</th><th>时间</th></tr></thead><tbody>
+       ${runs.map(r => `<tr>
+         <td><a href="#" onclick="switchTab('trace');document.getElementById('trace-input').value='${r.article_id}';loadTrace()" style="color:var(--accent)">${r.article_id}</a></td>
+         <td>${stageBadge(r.final_stage)}</td><td>${(r.critic_score||0).toFixed(2)}</td><td>${(r.created_at||'').slice(0,16)}</td>
+       </tr>`).join('')}</tbody></table>`
+    : '<div class="empty"><div class="icon">📭</div>暂无运行记录</div>';
+}
+
+// ==================== PIPELINE ====================
+async function initPipeline() {
+  await fetchWithGuard('pipeline', async () => {
+    const [health, status, history] = await Promise.all([
+      api('GET', '/api/system/health'),
+      api('GET', '/api/pipeline/status').catch(() => null),
+      api('GET', '/api/pipeline/history?limit=20').catch(() => ({ history: [] })),
+    ]);
+    APP.state.health = health;
+    if (status) APP.state.status = status;
+    APP.state.history = history.history || [];
+    renderPipelineControls();
+    renderCandidateTopics();
+    renderHistory();
+  });
+}
+
+function renderPipelineControls() {
+  const h = APP.state.health || {};
+  APP.killActive = h.kill_switch_active;
+  document.getElementById('btn-kill').style.display = APP.killActive ? 'none' : '';
+  document.getElementById('btn-resume').style.display = APP.killActive ? '' : 'none';
+}
+
+async function triggerPipeline(mode, force = false) {
+  if (document.getElementById('chk-force').checked) force = true;
+  const topic = document.getElementById('topic-input')?.value || '';
+  const angle = document.getElementById('angle-input')?.value || '';
+  const btn = event?.target;
+  if (btn) { btn.disabled = true; btn.textContent += '...'; }
+  try {
+    const result = await api('POST', '/api/pipeline/trigger', { mode, force, topic, angle });
+    APP.state.triggerResult = result;
+    renderTriggerResult(result);
+    showToast(`触发成功: ${result.article_id} — ${result.final_stage}`, result.final_stage === 'done' ? 'success' : 'error');
+    setTimeout(() => fetchWithGuard('overview', async () => {
+      const [health, status] = await Promise.all([api('GET','/api/system/health'), api('GET','/api/pipeline/status')]);
+      APP.state.health = health; APP.state.status = status; renderOverview(); updateHeader();
+    }, 0), 3000);
+  } catch (e) {
+    showToast('触发失败: ' + e.message, 'error');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = btn.textContent.replace('...', ''); }
+}
+
+function renderCandidateTopics() {
+  const topics = APP.state.status?.candidate_topics || [];
+  const el = document.getElementById('candidate-topics');
+  if (!topics.length) {
+    el.innerHTML = '<span style="color:var(--text-dim)">候选话题池为空 — </span><a href="#" onclick="refreshTopicPool()" style="color:var(--accent)">点击刷新</a>';
+    return;
+  }
+  el.innerHTML = '<span style="color:var(--text-dim)">👇 点击候选话题即刻生成（dry-run），或先填入输入框再选模式：</span><br>' +
+    topics.map(t =>
+      `<div style="display:flex;align-items:center;gap:8px;margin:4px 0;padding:6px 8px;background:var(--bg);border-radius:4px">
+        <span style="flex:1;font-size:13px;cursor:pointer" onclick="document.getElementById('topic-input').value='${escAttr(t.topic)}'" title="点击填入输入框">${escHtml(t.topic)}</span>
+        <span style="font-size:11px;color:var(--text-dim)" title="趋势分">${(t.trend_score||0).toFixed(2)}</span>
+        <button class="btn accent" style="font-size:11px;padding:3px 8px" onclick="quickGenerate('${escAttr(t.topic)}')">⚡ 生成</button>
+      </div>`
+    ).join('') +
+    ' <div style="margin-top:4px"><a href="#" onclick="refreshTopicPool()" style="color:var(--text-dim);font-size:11px">🔄 刷新话题池</a></div>';
+}
+
+async function quickGenerate(topic) {
+  document.getElementById('topic-input').value = topic;
+  showToast(`开始生成: ${topic}`, 'info');
+  await triggerPipeline('dry-run');
+}
+
+async function refreshTopicPool() {
+  try {
+    await api('POST', '/api/pipeline/refresh-pool');
+    showToast('话题池已刷新', 'success');
+    const status = await api('GET', '/api/pipeline/status');
+    APP.state.status = status;
+    renderCandidateTopics();
+  } catch (e) { showToast('刷新失败: ' + e.message, 'error'); }
+}
+
+function renderTriggerResult(result) {
+  if (!result) return;
+  document.getElementById('trigger-result').innerHTML = `
+    <div class="card" style="border-color:${result.final_stage==='done'?'var(--accent)':'var(--red)'}">
+      <div class="label">触发结果</div>
+      <div style="font-size:13px;margin:8px 0">
+        ID: <strong>${result.article_id}</strong> |
+        状态: ${stageBadge(result.final_stage)} |
+        话题: ${result.selected_topic || '—'} |
+        Critic: ${result.critic_score?.toFixed(2) || '—'}
+      </div>
+      <div style="font-size:13px">标题: ${result.draft_title || '—'}</div>
+      <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--accent)">Trace (${(result.trace||[]).length} 条)</summary>
+        <pre style="background:var(--bg);padding:8px;border-radius:4px;font-size:11px;max-height:300px;overflow-y:auto;margin-top:4px">${(result.trace||[]).join('\n')}</pre>
+      </details>
+    </div>`;
+}
+
+function renderHistory() {
+  const h = APP.state.history || [];
+  document.getElementById('pipeline-history').innerHTML = h.length
+    ? `<table><thead><tr><th>Article</th><th>模式</th><th>状态</th><th>Critic</th><th>重写</th><th>时间</th></tr></thead><tbody>
+       ${h.map(r => `<tr>
+         <td><a href="#" onclick="switchTab('trace');document.getElementById('trace-input').value='${r.article_id}';loadTrace()" style="color:var(--accent)">${(r.article_id||'').slice(0,12)}</a></td>
+         <td>${r.publish_mode || r.human_mode || ''}</td>
+         <td>${stageBadge(r.final_stage)}</td>
+         <td>${(r.critic_overall_score||0).toFixed(2)}</td>
+         <td>${r.rewrite_count||0}</td>
+         <td>${(r.created_at||'').slice(0,16)}</td>
+       </tr>`).join('')}</tbody></table>`
+    : '<div class="empty"><div class="icon">📭</div>暂无运行历史</div>';
+}
+
+async function toggleKillSwitch() {
+  if (!confirm('确定要激活紧急停止吗？所有流水线将被阻断。')) return;
+  try {
+    await api('POST', '/api/system/kill');
+    APP.killActive = true;
+    renderPipelineControls();
+    showToast('紧急停止已激活', 'error');
+  } catch (e) { showToast('操作失败: ' + e.message, 'error'); }
+}
+
+async function resumeSystem() {
+  try {
+    await api('POST', '/api/system/resume');
+    APP.killActive = false;
+    renderPipelineControls();
+    showToast('系统已恢复运行', 'success');
+  } catch (e) { showToast('操作失败: ' + e.message, 'error'); }
+}
+
+// ==================== ARTICLES ====================
+async function initArticles() {
+  await loadArticles();
+}
+
+async function loadArticles(offset = 0) {
+  const status = document.getElementById('article-filter')?.value || '';
+  const limit = 15;
+  try {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (status) params.set('status', status);
+    const data = await api('GET', '/api/articles?' + params.toString());
+    APP.state.articles = { items: data.articles || [], count: data.count || 0 };
+    renderArticleTable();
+  } catch (e) { showToast('加载文章失败: ' + e.message, 'error'); }
+}
+
+function renderArticleTable() {
+  const { items, count } = APP.state.articles;
+  const offset = APP.state.articles._offset || 0;
+  const limit = 15;
+  if (!items.length) {
+    document.getElementById('articles-table').innerHTML = '<div class="empty"><div class="icon">📄</div>暂无文章</div>';
+    document.getElementById('articles-pagination').innerHTML = '';
+    return;
+  }
+  document.getElementById('articles-table').innerHTML = `<table><thead><tr><th>标题</th><th>话题</th><th>状态</th><th>Critic</th><th>时间</th><th>操作</th></tr></thead><tbody>
+    ${items.map(a => `<tr>
+      <td><a href="#" onclick="viewArticle('${a.id}')" style="color:var(--accent);max-width:300px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(a.title||'无标题')}</a></td>
+      <td>${escHtml(a.topic||'')}</td>
+      <td>${statusBadge(a.status)}</td>
+      <td>${(a.critic_overall_score||0).toFixed(2)}</td>
+      <td>${(a.created_at||'').slice(0,10)}</td>
+      <td>${a.status==='draft'?`<button class="btn" style="font-size:11px;padding:4px 8px" onclick="approveArticle('${a.id}')">✓ 批准</button> <button class="btn red" style="font-size:11px;padding:4px 8px" onclick="rejectArticle('${a.id}')">✗ 拒绝</button>`:''}
+          <button class="btn" style="font-size:11px;padding:4px 8px" onclick="deleteArticle('${a.id}')">🗑</button></td>
+    </tr>`).join('')}</tbody></table>`;
+  const totalPages = Math.ceil(count / limit);
+  const currentPage = Math.floor(offset / limit) + 1;
+  document.getElementById('articles-pagination').innerHTML = `
+    <button class="btn" ${offset===0?'disabled':''} onclick="APP.state.articles._offset=${Math.max(0,offset-limit)};loadArticles(APP.state.articles._offset)">上一页</button>
+    <span style="font-size:13px;color:var(--text-muted)">${currentPage} / ${totalPages} (共${count}篇)</span>
+    <button class="btn" ${offset+limit>=count?'disabled':''} onclick="APP.state.articles._offset=${offset+limit};loadArticles(APP.state.articles._offset)">下一页</button>`;
+}
+
+async function viewArticle(id) {
+  try {
+    const data = await api('GET', '/api/articles/' + id);
+    const a = data.article;
+    const html = a.content || '';
+    const md = a.content_markdown || '';
+    document.getElementById('modal-content').innerHTML = `
+      <button class="close" onclick="closeModal()">×</button>
+      <h2>${escHtml(a.title||'无标题')}</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        ${badge(a.status, statusBadge)} <span class="badge blue">${escHtml(a.topic||'')}</span>
+        <span style="font-size:12px;color:var(--text-dim)">Critic: ${(a.critic_overall_score||0).toFixed(2)} | 漂移: ${(a.integrity_style_drift||0).toFixed(3)} | 模板: ${a.integrity_template_risk||'low'}</span>
+      </div>
+      <div class="label">HTML 预览</div>
+      ${html ? `<iframe srcdoc="${escAttr(html)}" sandbox=""></iframe>` : '<div class="empty">无HTML内容</div>'}
+      <details style="margin-top:12px"><summary style="cursor:pointer;color:var(--accent)">Markdown 原文 (${md.length} 字符)</summary>
+        <pre style="background:var(--bg);padding:8px;border-radius:4px;font-size:11px;max-height:300px;overflow-y:auto;margin-top:4px;white-space:pre-wrap">${escHtml(md)}</pre>
+      </details>
+      <div class="modal-actions">
+        ${a.status==='draft'?`<button class="btn accent" onclick="approveArticle('${a.id}')">✓ 批准发布</button><button class="btn red" onclick="rejectArticle('${a.id}')">✗ 拒绝</button>`:''}
+        <button class="btn" onclick="deleteArticle('${a.id}');closeModal()">🗑 删除</button>
+      </div>`;
+    document.getElementById('modal-overlay').classList.add('show');
+  } catch (e) { showToast('加载文章失败: ' + e.message, 'error'); }
+}
+
+async function approveArticle(id) {
+  if (!confirm('确定批准并发布这篇文章吗？')) return;
+  try { await api('POST', '/api/articles/' + id + '/approve'); showToast('已发布', 'success'); closeModal(); loadArticles(); }
+  catch (e) { showToast('发布失败: ' + e.message, 'error'); }
+}
+
+async function rejectArticle(id) {
+  if (!confirm('确定拒绝这篇文章吗？')) return;
+  try { await api('POST', '/api/articles/' + id + '/reject'); showToast('已拒绝', 'success'); closeModal(); loadArticles(); }
+  catch (e) { showToast('操作失败: ' + e.message, 'error'); }
+}
+
+async function deleteArticle(id) {
+  if (!confirm('确定删除这篇文章吗？（软删除，可恢复）')) return;
+  try { await api('DELETE', '/api/articles/' + id); showToast('已删除', 'success'); loadArticles(); }
+  catch (e) { showToast('删除失败: ' + e.message, 'error'); }
+}
+
+function closeModal() { document.getElementById('modal-overlay').classList.remove('show'); }
+
+// ==================== CONFIG ====================
+let _cfgLoaded = false;
+async function initConfig() {
+  if (_cfgLoaded) return;
+  try {
+    const cfg = await api('GET', '/api/config');
+    APP.state.config = cfg;
+    renderConfig();
+    _cfgLoaded = true;
+  } catch (e) { showToast('加载配置失败: ' + e.message, 'error'); }
+}
+
+function renderConfig() {
+  const c = APP.state.config;
+  const modes = ['dry-run', 'semi-auto', 'auto'];
+  const labels = { 'dry-run': '🖊 仅预览', 'semi-auto': '👁 半自动', 'auto': '🚀 全自动' };
+  document.getElementById('cfg-mode').innerHTML = modes.map(m =>
+    `<button class="btn ${c.mode===m?'accent':''}" onclick="stageMode('${m}')">${labels[m]}</button>`
+  ).join('');
+  document.getElementById('cfg-provider').value = c.provider || 'deepseek';
+  document.getElementById('cfg-threshold').value = c.scoring?.threshold || 0.7;
+  document.getElementById('cfg-threshold-val').textContent = (c.scoring?.threshold || 0.7).toFixed(2);
+  const w = c.scoring?.weights || { time: 0.3, content: 0.4, risk: 0.3 };
+  document.getElementById('cfg-wtime').value = w.time;
+  document.getElementById('cfg-wcontent').value = w.content;
+  document.getElementById('cfg-wrisk').value = w.risk;
+  document.getElementById('cfg-wtime-val').textContent = w.time.toFixed(2);
+  document.getElementById('cfg-wcontent-val').textContent = w.content.toFixed(2);
+  document.getElementById('cfg-wrisk-val').textContent = w.risk.toFixed(2);
+  APP.configDirty = false;
+  document.getElementById('cfg-apply').disabled = true;
+  document.getElementById('cfg-status').textContent = '';
+}
+
+function markConfigDirty() {
+  APP.configDirty = true;
+  document.getElementById('cfg-apply').disabled = false;
+  document.getElementById('cfg-status').textContent = '有未应用的更改';
+}
+
+function stageMode(mode) {
+  APP.state.config.mode = mode;
+  renderConfig();
+  markConfigDirty();
+}
+
+function onThresholdInput() {
+  document.getElementById('cfg-threshold-val').textContent = parseFloat(document.getElementById('cfg-threshold').value).toFixed(2);
+  markConfigDirty();
+}
+
+function onWeightInput() {
+  document.getElementById('cfg-wtime-val').textContent = parseFloat(document.getElementById('cfg-wtime').value).toFixed(2);
+  document.getElementById('cfg-wcontent-val').textContent = parseFloat(document.getElementById('cfg-wcontent').value).toFixed(2);
+  document.getElementById('cfg-wrisk-val').textContent = parseFloat(document.getElementById('cfg-wrisk').value).toFixed(2);
+  markConfigDirty();
+}
+
+async function applyConfig() {
+  const btn = document.getElementById('cfg-apply');
+  btn.disabled = true; btn.textContent = '提交中...';
+  const payload = {
+    mode: APP.state.config.mode,
+    provider: document.getElementById('cfg-provider').value,
+    threshold: parseFloat(document.getElementById('cfg-threshold').value),
+    time_weight: parseFloat(document.getElementById('cfg-wtime').value),
+    content_weight: parseFloat(document.getElementById('cfg-wcontent').value),
+    risk_weight: parseFloat(document.getElementById('cfg-wrisk').value),
+  };
+  try {
+    const canonical = await api('PUT', '/api/config', payload);
+    // Rehydrate UI from canonical server response
+    APP.state.config = canonical;
+    renderConfig();
+    document.getElementById('cfg-status').textContent = '✓ 已保存';
+    showToast('配置已更新', 'success');
+    updateHeader();
+  } catch (e) {
+    showToast('配置保存失败: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = '应用配置';
+  }
+}
+
+// ==================== HEALTH ====================
+async function initHealth() {
+  await fetchWithGuard('health', async () => {
+    const health = await api('GET', '/api/system/health');
+    APP.state.health = health;
+    renderHealth();
+    updateHeader();
+  });
+}
+
+function renderHealth() {
+  const h = APP.state.health || {};
+  document.getElementById('health-cards').innerHTML = `
+    <div class="card"><div class="label">紧急停止</div><div class="value" style="color:${h.kill_switch_active?'var(--red)':'var(--accent)'}">${h.kill_switch_active ? '已激活' : '正常'}</div></div>
+    <div class="card"><div class="label">发布统计</div><div class="value">${h.published_today||0}<span class="sub">今日 / ${h.published_this_week||0} 本周</span></div></div>
+    <div class="card"><div class="label">活跃话题</div><div class="value">${h.active_topics||0}</div></div>
+    <div class="card"><div class="label">漂移告警</div><div class="value" style="color:${(h.drift?.alert_count||0)>0?'var(--yellow)':'var(--accent)'}">${h.drift?.alert_count||0}</div></div>
+  `;
+  // Entropy gauge
+  const entropy = h.topic_entropy || 0;
+  const gaugeEl = document.getElementById('entropy-gauge');
+  const angle = entropy * 360;
+  gaugeEl.style.background = `conic-gradient(${entropy<0.2?'var(--red)':entropy<0.35?'var(--yellow)':'var(--accent)'} ${angle}deg, var(--border) ${angle}deg)`;
+  gaugeEl.querySelector('span').textContent = entropy.toFixed(3);
+  document.getElementById('entropy-label').textContent = entropy < 0.2 ? '⚠ 严重坍缩' : entropy < 0.35 ? '⚡ 偏低' : '✓ 正常';
+  // Drift alerts
+  const alerts = h.drift?.alerts || [];
+  document.getElementById('drift-alerts').innerHTML = alerts.length
+    ? `<table><thead><tr><th>级别</th><th>类型</th><th>消息</th><th>动作</th></tr></thead><tbody>
+       ${alerts.map(a => `<tr>
+         <td>${a.level==='critical'?'<span class="badge red">严重</span>':'<span class="badge yellow">警告</span>'}</td>
+         <td>${escHtml(a.type||'')}</td><td>${escHtml(a.message||'')}</td><td>${escHtml(a.action||'')}</td>
+       </tr>`).join('')}</tbody></table>`
+    : '<div class="empty"><div class="icon">✅</div>无漂移告警</div>';
+}
+
+// ==================== TRACE ====================
+async function initTrace() {
+  // Trace tab is lazy — user must input an article_id
+  document.getElementById('trace-result').innerHTML = '<div class="empty"><div class="icon">🔍</div>输入 article_id 查看流水线执行详情</div>';
+}
+
+async function loadTrace() {
+  const id = document.getElementById('trace-input').value.trim();
+  if (!id) return;
+  try {
+    const trace = await api('GET', '/api/pipeline/trace/' + id);
+    APP.state.traceData = trace;
+    renderTraceDAG(trace);
+  } catch (e) {
+    document.getElementById('trace-result').innerHTML = `<div class="empty"><div class="icon">❌</div>${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderTraceDAG(trace) {
+  const stages = trace.stages || [];
+  const html = [];
+  html.push(`<div style="margin-bottom:12px;font-size:13px"><strong>${trace.article_id}</strong> | 状态: ${stageBadge(trace.final_stage)} | 模式: ${trace.human_mode||'—'} | LLM调用: ${trace.llm_call_count||0} | 时间: ${(trace.created_at||'').slice(0,16)}</div>`);
+  html.push('<div class="dag">');
+  for (let i = 0; i < stages.length; i++) {
+    const s = stages[i];
+    const cls = s.completed ? (s.stage === 'review' && (s.critic_overall_score || 0) < 0.5 ? 'fail' : 'pass') : (trace.final_stage === 'fail' && !s.completed ? 'fail' : '');
+    html.push(`<div class="dag-node ${cls}">`);
+    html.push(`<div class="stage-name">${stageIcon(s.stage)} ${s.stage.toUpperCase()}</div>`);
+    html.push(`<div class="stage-detail">`);
+    if (s.stage === 'decide') {
+      const d = s.detail || {};
+      html.push(`评分: ${(d.publish_score||0)?.toFixed(2)}<br>时间: ${(d.time_score||0)?.toFixed(2)} / 内容: ${(d.content_score||0)?.toFixed(2)} / 风险: ${(d.risk_score||0)?.toFixed(2)}`);
+      if (d.decide_reason) html.push(`<br><span style="color:var(--text-dim)">${escHtml(String(d.decide_reason).slice(0,80))}</span>`);
+    } else if (s.stage === 'generate') {
+      const sub = s.sub_stages || {};
+      html.push(`人格: ${sub.persona?.key || '—'}<br>话题: ${(sub.topic?.topic || '—').slice(0,20)}<br>写作: ${(sub.writer?.title || '—').slice(0,30)}`);
+      if (s.rewrite_count) html.push(`<br>重写: ${s.rewrite_count}次`);
+    } else if (s.stage === 'review') {
+      const sub = s.sub_stages || {};
+      html.push(`Primary: ${sub.primary?.overall_score?.toFixed(2) || '—'}<br>Compliance: ${sub.compliance?.overall_score?.toFixed(2) || '—'}`);
+      if (sub.adversarial && Object.keys(sub.adversarial).length > 0) html.push(`<br>Adversarial: ${sub.adversarial.overall_issue_score?.toFixed(2) || '触发'}`);
+      if (sub.integrity && Object.keys(sub.integrity).length > 0) html.push(`<br>Integrity: ${sub.integrity.pass ? '✓' : '✗'}`);
+    } else if (s.stage === 'publish') {
+      const d = s.detail || {};
+      html.push(`模式: ${d.mode || '—'}<br>${d.wechat_draft_id ? '草稿: '+d.wechat_draft_id.slice(0,12) : d.publish_error ? '错误: '+escHtml(String(d.publish_error).slice(0,40)) : '—'}`);
+    } else if (s.stage === 'feedback') {
+      html.push(typeof s.detail === 'string' ? escHtml(s.detail) : '已记录');
+    }
+    html.push(`</div>`);
+    // Expander for full detail
+    html.push(`<div class="expander" style="margin-top:6px;font-size:11px" onclick="this.nextElementSibling.classList.toggle('open')">▶ 详情</div>`);
+    html.push(`<div class="trace-detail"><pre style="white-space:pre-wrap;font-size:11px">${escHtml(JSON.stringify(s.sub_stages || s.detail || {}, null, 2))}</pre></div>`);
+    html.push(`</div>`);
+    if (i < stages.length - 1) html.push('<div class="dag-arrow">→</div>');
+  }
+  html.push('</div>');
+  if (trace.failure_reason) html.push(`<div style="margin-top:8px;padding:8px;background:rgba(239,68,68,.1);border-radius:4px;font-size:12px;color:var(--red)">失败原因: ${escHtml(trace.failure_reason)}</div>`);
+  document.getElementById('trace-result').innerHTML = html.join('');
+}
+
+// ==================== Helpers ====================
+function stageBadge(s) {
+  const map = { done: 'green', publish: 'green', feedback: 'green', generate: 'blue', review: 'blue', decide: 'blue', fail: 'red', skip: 'yellow' };
+  const labels = { done: '完成', fail: '失败', skip: '跳过', generate: '生成中', review: '评审中', publish: '发布中', feedback: '反馈', decide: '决策' };
+  return `<span class="badge ${map[s]||'blue'}">${labels[s]||s}</span>`;
+}
+
+function statusBadge(s) {
+  const map = { draft: 'blue', published: 'green', rejected: 'red' };
+  const labels = { draft: '草稿', published: '已发布', rejected: '已拒绝' };
+  return `<span class="badge ${map[s]||''}">${labels[s]||s}</span>`;
+}
+
+function stageIcon(s) {
+  const icons = { decide: '🧠', generate: '✍', review: '🔍', publish: '📤', feedback: '🔄' };
+  return icons[s] || '•';
+}
+
+function badge(val, fn) { return fn ? fn(val) : val; }
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function escAttr(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ==================== Init ====================
+function init() {
+  // Handle URL hash
+  const hash = location.hash.replace('#', '');
+  if (['overview','pipeline','articles','config','health','trace'].includes(hash)) {
+    APP.activeTab = hash;
+  }
+  switchTab(APP.activeTab);
+  // Initial full refresh
+  fetchWithGuard('bootstrap', async () => {
+    const [health, status, config] = await Promise.all([
+      api('GET', '/api/system/health'),
+      api('GET', '/api/pipeline/status'),
+      api('GET', '/api/config').catch(() => null),
+    ]);
+    if (health) APP.state.health = health;
+    if (status) APP.state.status = status;
+    if (config) APP.state.config = config;
+    renderOverview();
+    renderPipelineControls();
+    updateHeader();
+  }, 0);
+}
+init();
+</script>
+</body>
+</html>
