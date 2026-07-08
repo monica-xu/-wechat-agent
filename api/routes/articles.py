@@ -120,6 +120,16 @@ async def delete_article(article_id: str):
 class FeedbackRequest(BaseModel):
     status: str  # adopted | edited | rejected
     note: str = ""
+    article_type: str = ""
+    edit_type: str = ""
+    core_opinion: str = ""
+    core_conflict: str = ""
+    metaphors_used: str = ""
+    edited_markdown: str = ""
+    read_count: int = 0
+    share_count: int = 0
+    like_count: int = 0
+    comment_count: int = 0
 
 
 @router.post("/articles/{article_id}/feedback")
@@ -130,9 +140,15 @@ async def save_feedback(article_id: str, req: FeedbackRequest):
     from db._base import _db
     with _db() as conn:
         conn.execute(
-            "INSERT INTO article_feedback (article_id, status, note) VALUES (?, ?, ?)",
-            (article_id, req.status, req.note),
+            "INSERT INTO article_feedback (article_id, status, note, article_type, edit_type, core_opinion, core_conflict, metaphors_used, edited_markdown) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (article_id, req.status, req.note, req.article_type, req.edit_type, req.core_opinion, req.core_conflict, req.metaphors_used, req.edited_markdown),
         )
+        # Also save metrics if provided
+        if req.read_count > 0 or req.share_count > 0 or req.like_count > 0 or req.comment_count > 0:
+            conn.execute(
+                "INSERT OR REPLACE INTO article_metrics (article_id, read_count, share_count, like_count, comment_count, fetched_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))",
+                (article_id, req.read_count, req.share_count, req.like_count, req.comment_count),
+            )
     return {"status": "saved", "article_id": article_id, "feedback": req.status}
 
 
@@ -142,7 +158,7 @@ async def get_feedback(article_id: str):
     from db._base import _db
     with _db() as conn:
         rows = conn.execute(
-            "SELECT id, status, note, created_at FROM article_feedback WHERE article_id = ? ORDER BY created_at DESC",
+            "SELECT * FROM article_feedback WHERE article_id = ? ORDER BY created_at DESC",
             (article_id,),
         ).fetchall()
     history = [dict(r) for r in rows]

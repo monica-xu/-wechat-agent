@@ -151,20 +151,25 @@ async def handle_generate(state: ArticleState, runtime: AgentRuntime) -> Article
             state.selected_angle = "本周热点回顾"
             state.generate_trace["topic"] = {"error": str(e), "fallback": True}
 
-    # -- Sub-stage 2b: Research --
-    _append_trace(state, f"GENERATE: researching '{state.selected_topic}'...")
-    try:
-        research_result = await run_research(state, runtime)
-        state.research_data = research_result.get("notes", "")
-        state.research_sources = research_result.get("sources", [])
-        state.generate_trace["research"] = research_result
-        state.llm_call_count += 1
-        runtime.llm_call_count += 1
-        _append_trace(state, f"RESEARCH: {len(state.research_sources)} sources found")
-    except Exception as e:
-        logger.warning(f"Research failed: {e}, continuing with topic only")
-        state.research_data = f"话题：{state.selected_topic}\n角度：{state.selected_angle}"
-        state.generate_trace["research"] = {"error": str(e), "fallback": True}
+    # -- Sub-stage 2b: Research (skip if seed_text provided) --
+    if state.seed_text and state.seed_text.strip():
+        state.research_data = state.seed_text.strip()
+        state.research_sources = []
+        _append_trace(state, f"GENERATE: using seed text ({len(state.research_data)} chars), skipping research")
+    else:
+        _append_trace(state, f"GENERATE: researching '{state.selected_topic}'...")
+        try:
+            research_result = await run_research(state, runtime)
+            state.research_data = research_result.get("notes", "")
+            state.research_sources = research_result.get("sources", [])
+            state.generate_trace["research"] = research_result
+            state.llm_call_count += 1
+            runtime.llm_call_count += 1
+            _append_trace(state, f"RESEARCH: {len(state.research_sources)} sources found")
+        except Exception as e:
+            logger.warning(f"Research failed: {e}, continuing with topic only")
+            state.research_data = f"话题：{state.selected_topic}\n角度：{state.selected_angle}"
+            state.generate_trace["research"] = {"error": str(e), "fallback": True}
 
     # -- Sub-stage 2c: Writer --
     _append_trace(state, "GENERATE: writing draft...")

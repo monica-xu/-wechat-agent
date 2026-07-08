@@ -46,6 +46,7 @@ class ArticleState:
     # -- GENERATE: Topic --
     topic: str = ""          # user input override (optional)
     angle: str = ""          # user input angle (optional)
+    seed_text: str = ""      # user draft for co-writing mode (bypasses research)
     selected_topic: str = "" # final execution topic (always set)
     selected_angle: str = ""
     topic_source: str = ""   # auto | pool | trending | manual

@@ -170,22 +170,98 @@ async def _extract_tensions(headlines: list[dict], provider: str) -> list[dict]:
 
 
 async def refresh_topic_pool(session_id: str) -> None:
-    """Refresh the topic pool with trending topics (called by scheduler)."""
+    """Refresh the topic pool. Branches by topic_source config."""
+    import os
+    from db._config import RuntimeConfig
+    from db._content_memory import clear_topic_pool
+    clear_topic_pool(session_id)
+
+    source = RuntimeConfig.get("topic_source", "")
+    if source == "books":
+        await _generate_from_books(session_id)
+    elif source == "news":
+        await _generate_from_news(session_id)
+    else:
+        # Auto: use NewsAPI if key configured, else books mode
+        if os.getenv("NEWSAPI_KEY", "").startswith("sk-") or len(os.getenv("NEWSAPI_KEY", "")) > 20:
+            await _generate_from_news(session_id)
+        else:
+            await _generate_from_books(session_id)
+
+
+async def _generate_from_books(session_id: str) -> None:
+    """Book review / reading notes topic generation."""
+    import os
+    from infra.llm import acall_llm
+    from db._content_memory import save_topic_pool
+    from db._config import RuntimeConfig
+
+    provider = os.getenv("LLM_PROVIDER", "deepseek")
+    focus = RuntimeConfig.get("topic_focus", "")
+    reading_list = RuntimeConfig.get("reading_list", "")
+    focus_line = f"聚焦方向：{focus}。" if focus else ""
+
+    book_hint = ""
+    if reading_list and reading_list.strip():
+        book_hint = f"""从以下书单中选题：
+{reading_list.strip()}"""
+    else:
+        book_hint = "从你的知识库中推荐值得写书评/读后感的书籍。"
+
+    prompt = f"""你是书评/读后感公众号编辑。{focus_line}
+
+{book_hint}
+
+步骤1：为每本书先选一个"阅读透镜"（Lens），决定今天为什么值得写：
+- 现代映射：这本书解释了今天正在发生的什么？
+- 认知反转：这本书的哪个观点和常识相反？
+- 现实冲突：这本书的哪个判断在现实中碰壁了？
+- 被误读：这本书被大众误解最深的是什么？
+- 为什么今天重读：这本书在当下为什么突然重要了？
+
+步骤2：基于选定的 Lens，生成公众号选题。
+
+要求：
+- 标题必须同时包含书名/作者 + Lens + 可争议观点
+- 禁止："X读后感""从X看Y"等模板
+- 禁止新闻语气、学术结构句
+
+例（基于 Lens）：
+- 现代映射：《规训与惩罚》写于1975年，描述的监视社会今天不是监狱而是社交媒体的点赞
+- 认知反转：《思考快与慢》真正难学的不是理论，而是承认自己会错
+- 现实冲突：为什么《原则》在硅谷被奉为圣经，在中国企业却水土不服？
+- 被误读：《乌合之众》不是群众非理性的证明，而是精英引导的狂欢
+- 为什么今天重读：当AI开始替你思考，《娱乐至死》的预言进入了下一阶段
+
+输出JSON：[{{"topic":"...","reason":"基于什么Lens（20字）","category":"书评/思想","trend_score":0.8}}]"""
+
+    try:
+        resp = await acall_llm(prompt, "推荐5个书评/读后感选题。", provider=provider,
+                               temperature=0.7, json_mode=True, trace_stage="topic_books")
+        topics = json.loads(resp)
+        if isinstance(topics, dict) and "topics" in topics:
+            topics = topics["topics"]
+        if isinstance(topics, list):
+            save_topic_pool(session_id, topics)
+            logger.info(f"Topic pool refreshed (books): {len(topics)} topics added")
+    except Exception as e:
+        logger.error(f"Book topic refresh failed: {e}")
+
+
+async def _generate_from_news(session_id: str) -> None:
+    """News-driven topic generation (existing flow)."""
     import os
     from infra.llm import acall_llm
     from db._content_memory import save_topic_pool, clear_topic_pool
+    from db._config import RuntimeConfig
 
     provider = os.getenv("LLM_PROVIDER", "deepseek")
-
-    # Build prompt with optional topic focus from config
-    from db._config import RuntimeConfig
     focus = RuntimeConfig.get("topic_focus", "")
     if focus:
         focus_instruction = f"请聚焦在以下方向：{focus}。"
     else:
         focus_instruction = "请结合近期具体事件/产品/数据选题。"
 
-    # Fetch real-time headlines as anchor candidates
     from tools.research import fetch_headlines
     headlines = await fetch_headlines(count=10)
     if headlines:
@@ -217,10 +293,10 @@ async def refresh_topic_pool(session_id: str) -> None:
 4. 最后才允许抽象结构描述
 
 推荐表达模板（必须含具体人/行为/场景）：
-- 当{具体角色}开始{具体行为}，{旧认知}正在被推翻
-- 为什么{具体角色}越{行为}，反而越{反常识结果}？
-- {具体场景}里，{旧规则}正在被{新现实}取代
-- {具体角色}正在用{新行为}重新定义{旧概念}
+- 当{{具体角色}}开始{{具体行为}}，{{旧认知}}正在被推翻
+- 为什么{{具体角色}}越{{行为}}，反而越{{反常识结果}}？
+- {{具体场景}}里，{{旧规则}}正在被{{新现实}}取代
+- {{具体角色}}正在用{{新行为}}重新定义{{旧概念}}
 
 锚点分布（5个标题必须按此比例）：
 - 2个「角色锚点」：以具体角色为核心（用户/打工人/管理者/投资者/父母/学生）
@@ -252,9 +328,6 @@ async def refresh_topic_pool(session_id: str) -> None:
 - 必须可引发点击阅读欲望
 
 输出JSON：[{{"topic":"...","reason":"基于哪个tension","category":"科技/商业/生活","trend_score":0.8}}]"""
-
-    # Clear old pool before inserting new topics
-    clear_topic_pool(session_id)
 
     try:
         resp = await acall_llm(topic_prompt, "基于tension生成公众号选题。", provider=provider,

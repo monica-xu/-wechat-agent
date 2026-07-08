@@ -14,6 +14,7 @@ class TriggerRequest(BaseModel):
     force: bool = False
     topic: str = ""   # optional manual topic override
     angle: str = ""   # optional manual angle
+    seed_text: str = ""  # optional user draft for co-writing mode
 
 
 @router.post("/pipeline/trigger")
@@ -37,6 +38,9 @@ async def trigger_pipeline(req: TriggerRequest):
     if req.topic and req.topic.strip():
         state.topic = req.topic.strip()
         state.angle = req.angle.strip() if req.angle else ""
+    # Seed text for co-writing mode (optional) — bypasses research
+    if req.seed_text and req.seed_text.strip():
+        state.seed_text = req.seed_text.strip()
     runtime = AgentRuntime(
         session_id=sid,
         article_id=article_id,

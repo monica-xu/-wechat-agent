@@ -146,6 +146,9 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
         <div class="form-group"><label>Topic</label><input type="text" id="topic-input" placeholder="留空则自动选题" style="width:100%"></div>
         <div class="form-group"><label>Angle（角度）</label><input type="text" id="angle-input" placeholder="可选" style="width:100%"></div>
       </div>
+      <details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--text-muted)">✏️ 协同写作（粘贴你的初稿，系统润色）</summary>
+        <textarea id="seed-input" placeholder="粘贴你写的初稿…" style="width:100%;height:120px;margin-top:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;font-size:12px;resize:vertical"></textarea>
+      </details>
       <div id="candidate-topics" style="margin-top:8px;font-size:12px;color:var(--text-muted)"></div>
       <div class="btn-group" style="margin-top:12px">
         <button class="btn" id="btn-dry" onclick="triggerPipeline('dry-run')">🖊 Dry Run</button>
@@ -217,6 +220,18 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
           <div class="form-group"><label>风险 <span id="cfg-wrisk-val">0.30</span></label><input type="range" id="cfg-wrisk" min="0" max="1" step="0.01" value="0.30" oninput="onWeightInput()"></div>
         </div>
       </details>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="label">内容来源</div>
+      <select id="cfg-topic-source" onchange="onTopicSourceChange()">
+        <option value="">自动（有新闻API则用新闻，否则书籍）</option>
+        <option value="news">新闻热点（NewsAPI）</option>
+        <option value="books">书籍评论 / 读后感</option>
+      </select>
+      <div id="cfg-reading-list-area" style="display:none;margin-top:8px">
+        <label>阅读书单（每行一本书，留空则AI自由推荐）</label>
+        <textarea id="cfg-reading-list" placeholder="《思考，快与慢》&#10;《娱乐至死》&#10;《置身事内》" style="width:100%;height:80px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;font-size:12px;resize:vertical" oninput="markConfigDirty()"></textarea>
+      </div>
     </div>
     <div class="card" style="margin-bottom:16px">
       <div class="label">话题方向（留空则为通用选题）</div>
@@ -408,10 +423,11 @@ async function triggerPipeline(mode, force = false) {
   if (document.getElementById('chk-force').checked) force = true;
   const topic = document.getElementById('topic-input')?.value || '';
   const angle = document.getElementById('angle-input')?.value || '';
+  const seed = document.getElementById('seed-input')?.value || '';
   const btn = event?.target;
   if (btn) { btn.disabled = true; btn.textContent += '...'; }
   try {
-    const result = await api('POST', '/api/pipeline/trigger', { mode, force, topic, angle });
+    const result = await api('POST', '/api/pipeline/trigger', { mode, force, topic, angle, seed_text: seed });
     APP.state.triggerResult = result;
     renderTriggerResult(result);
     showToast(`触发成功: ${result.article_id} — ${result.final_stage}`, result.final_stage === 'done' ? 'success' : 'error');
@@ -581,14 +597,43 @@ async function viewArticle(id) {
       <div id="article-raw-html-${a.id}" style="display:none"></div>
       <textarea id="article-md-${a.id}" style="display:none">${escHtml(md)}</textarea>
       <div class="card" style="margin-top:12px">
-        <div class="label">内容评价（帮助系统改进选题和写作）</div>
+        <div class="label">写作轨迹（每篇一条风格记录）</div>
         <div class="btn-group">
-          <button class="btn accent" id="fb-adopted-${a.id}" onclick="submitFeedback('${a.id}','adopted')">✅ 直接采用</button>
-          <button class="btn" id="fb-edited-${a.id}" onclick="submitFeedback('${a.id}','edited')">✏️ 修改后采用</button>
-          <button class="btn red" id="fb-rejected-${a.id}" onclick="submitFeedback('${a.id}','rejected')">❌ 放弃</button>
+          <button class="btn accent" id="fb-adopted-${a.id}" onclick="selectFeedback('${a.id}','adopted')">✅ 直接采用</button>
+          <button class="btn" id="fb-edited-${a.id}" onclick="selectFeedback('${a.id}','edited')">✏️ 修改后采用</button>
+          <button class="btn red" id="fb-rejected-${a.id}" onclick="selectFeedback('${a.id}','rejected')">❌ 放弃</button>
         </div>
-        <input type="text" id="fb-note-${a.id}" placeholder="备注（可选）：标题改了 / 结构不错 / 话题不合适..." style="width:100%;margin-top:6px">
-        <span id="fb-msg-${a.id}" style="font-size:12px;color:var(--accent);display:none">✓ 已记录</span>
+        <div class="form-row" style="margin-top:6px">
+          <div class="form-group">
+            <label>文章类型</label><select id="fb-type-${a.id}"><option value="">—</option><option value="book_review">书评</option><option value="essay">随笔</option><option value="social_comment">社评</option></select>
+          </div>
+          <div class="form-group">
+            <label>改了什么</label><select id="fb-edit-${a.id}"><option value="">—</option><option value="title">改标题</option><option value="structure">改结构</option><option value="stance">改观点/语气</option><option value="minor">小修</option></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>核心观点（一句话）</label><input type="text" id="fb-opinion-${a.id}" placeholder="例如：自由不是选择，而是承担结构后果"></div>
+          <div class="form-group"><label>主冲突</label><select id="fb-conflict-${a.id}"><option value="">—</option><option value="individual_vs_structure">个体 vs 结构</option><option value="freedom_vs_constraint">自由 vs 约束</option><option value="expression_vs_silence">表达 vs 沉默</option><option value="choice_vs_fate">选择 vs 命运</option></select></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>隐喻使用</label><input type="text" id="fb-metaphors-${a.id}" placeholder="火车、门、票、瀑布..."></div>
+        </div>
+        <div class="form-row" style="margin-top:6px">
+          <div class="form-group"><label>阅读</label><input type="number" id="fb-reads-${a.id}" placeholder="0" style="width:100%"></div>
+          <div class="form-group"><label>分享</label><input type="number" id="fb-shares-${a.id}" placeholder="0" style="width:100%"></div>
+          <div class="form-group"><label>赞</label><input type="number" id="fb-likes-${a.id}" placeholder="0" style="width:100%"></div>
+          <div class="form-group"><label>评论</label><input type="number" id="fb-comments-${a.id}" placeholder="0" style="width:100%"></div>
+        </div>
+        <input type="text" id="fb-note-${a.id}" placeholder="备注（可选）" style="width:100%;margin-top:6px">
+        <div id="fb-edit-area-${a.id}" style="display:none;margin-top:8px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="font-size:12px;color:var(--text-muted)">最终发布版本</span>
+            <button class="btn" style="font-size:11px;padding:2px 8px" onclick="fillEditedContent('${a.id}')">📋 填充当前内容</button>
+          </div>
+          <textarea id="fb-edited-md-${a.id}" placeholder="粘贴公众号实际发布的最终版本..." style="width:100%;height:100px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;font-size:12px;resize:vertical"></textarea>
+        </div>
+        <button class="btn accent" style="margin-top:8px" onclick="submitFeedback('${a.id}')">保存</button>
+        <span id="fb-msg-${a.id}" style="font-size:12px;color:var(--accent);display:none;margin-left:8px">✓ 已记录</span>
       </div>
       <div class="modal-actions">
         ${a.status==='draft'?`<button class="btn accent" onclick="approveArticle('${a.id}')">✓ 批准发布</button><button class="btn red" onclick="rejectArticle('${a.id}')">✗ 拒绝</button>`:''}
@@ -619,17 +664,47 @@ async function deleteArticle(id) {
   catch (e) { showToast('删除失败: ' + e.message, 'error'); }
 }
 
-async function submitFeedback(articleId, status) {
+let _fbStatus = {};
+function selectFeedback(articleId, status) {
+  _fbStatus[articleId] = status;
+  document.getElementById('fb-adopted-'+articleId).className = status==='adopted'?'btn accent':'btn';
+  document.getElementById('fb-edited-'+articleId).className = status==='edited'?'btn accent':'btn';
+  document.getElementById('fb-rejected-'+articleId).className = status==='rejected'?'btn red':'btn';
+  const editArea = document.getElementById('fb-edit-area-'+articleId);
+  if (editArea) editArea.style.display = status === 'edited' ? 'block' : 'none';
+}
+
+function fillEditedContent(articleId) {
+  const ta = document.getElementById('fb-edited-md-' + articleId);
+  const rawDiv = document.getElementById('article-raw-html-' + articleId);
+  const mdTa = document.getElementById('article-md-' + articleId);
+  const content = mdTa ? mdTa.value : (rawDiv ? rawDiv.innerText : '');
+  if (ta && content) ta.value = content;
+}
+
+async function submitFeedback(articleId) {
+  const status = _fbStatus[articleId] || 'adopted';
   const note = document.getElementById('fb-note-' + articleId)?.value || '';
-  const btns = ['fb-adopted-'+articleId, 'fb-edited-'+articleId, 'fb-rejected-'+articleId];
-  btns.forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
+  const articleType = document.getElementById('fb-type-' + articleId)?.value || '';
+  const editType = document.getElementById('fb-edit-' + articleId)?.value || '';
+  const coreOpinion = document.getElementById('fb-opinion-' + articleId)?.value || '';
+  const coreConflict = document.getElementById('fb-conflict-' + articleId)?.value || '';
+  const metaphorsUsed = document.getElementById('fb-metaphors-' + articleId)?.value || '';
+  const editedMd = document.getElementById('fb-edited-md-' + articleId)?.value || '';
+  const reads = parseInt(document.getElementById('fb-reads-' + articleId)?.value) || 0;
+  const shares = parseInt(document.getElementById('fb-shares-' + articleId)?.value) || 0;
+  const likes = parseInt(document.getElementById('fb-likes-' + articleId)?.value) || 0;
+  const comments = parseInt(document.getElementById('fb-comments-' + articleId)?.value) || 0;
   try {
-    await api('POST', '/api/articles/' + articleId + '/feedback', { status, note });
+    await api('POST', '/api/articles/' + articleId + '/feedback', {
+      status, note, article_type: articleType, edit_type: editType,
+      core_opinion: coreOpinion, core_conflict: coreConflict, metaphors_used: metaphorsUsed,
+      edited_markdown: editedMd, read_count: reads, share_count: shares, like_count: likes, comment_count: comments
+    });
     const msg = document.getElementById('fb-msg-' + articleId);
     if (msg) { msg.style.display = 'inline'; setTimeout(() => msg.style.display = 'none', 3000); }
   } catch (e) {
     showToast('保存失败: ' + e.message, 'error');
-    btns.forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
   }
 }
 
@@ -722,10 +797,19 @@ function renderConfig() {
   const strategy = detectStrategy(w.time, w.content, w.risk);
   document.getElementById('cfg-strategy').value = strategy || '';
   if (strategy) document.getElementById('cfg-strategy').selectedIndex = Object.keys(STRATEGIES).indexOf(strategy);
+  document.getElementById('cfg-topic-source').value = c.topic_source || '';
+  document.getElementById('cfg-reading-list').value = c.reading_list || '';
+  onTopicSourceChange();
   document.getElementById('cfg-topic-focus').value = c.topic_focus || '';
   APP.configDirty = false;
   document.getElementById('cfg-apply').disabled = true;
   document.getElementById('cfg-status').textContent = '';
+}
+
+function onTopicSourceChange() {
+  const v = document.getElementById('cfg-topic-source').value;
+  document.getElementById('cfg-reading-list-area').style.display = v === 'books' ? 'block' : 'none';
+  markConfigDirty();
 }
 
 function markConfigDirty() {
@@ -786,6 +870,8 @@ async function applyConfig() {
     content_weight: parseFloat(document.getElementById('cfg-wcontent').value),
     risk_weight: parseFloat(document.getElementById('cfg-wrisk').value),
     topic_focus: document.getElementById('cfg-topic-focus').value,
+    topic_source: document.getElementById('cfg-topic-source').value,
+    reading_list: document.getElementById('cfg-reading-list').value,
   };
   try {
     const canonical = await api('PUT', '/api/config', payload);

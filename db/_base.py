@@ -168,6 +168,12 @@ def _create_tables(conn):
             article_id TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT '',
             note TEXT DEFAULT '',
+            article_type TEXT DEFAULT '',
+            edit_type TEXT DEFAULT '',
+            core_opinion TEXT DEFAULT '',
+            core_conflict TEXT DEFAULT '',
+            metaphors_used TEXT DEFAULT '',
+            edited_markdown TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         );
         CREATE INDEX IF NOT EXISTS idx_feedback_article ON article_feedback(article_id, created_at);
@@ -188,6 +194,8 @@ def _seed_config(conn):
         "scoring_weight_risk": "0.30",
         "publish_threshold": "0.70",
         "topic_focus": '""',
+        "topic_source": '""',
+        "reading_list": '""',
     }
     for key, value in defaults.items():
         conn.execute(
@@ -201,8 +209,13 @@ def _migrate(conn):
     cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     existing = {row[0] for row in cursor.fetchall()}
     migrations = [
-        # Future migrations go here. Example:
-        # ("articles", "ALTER TABLE articles ADD COLUMN new_field TEXT DEFAULT ''"),
+        ("article_feedback", "ALTER TABLE article_feedback ADD COLUMN edited_markdown TEXT DEFAULT ''"),
+        ("article_feedback", "ALTER TABLE article_feedback ADD COLUMN article_type TEXT DEFAULT ''"),
+        ("article_feedback", "ALTER TABLE article_feedback ADD COLUMN edit_type TEXT DEFAULT ''"),
+        ("article_feedback", "ALTER TABLE article_feedback ADD COLUMN core_opinion TEXT DEFAULT ''"),
+        ("article_feedback", "ALTER TABLE article_feedback ADD COLUMN core_conflict TEXT DEFAULT ''"),
+        ("article_metrics", "ALTER TABLE article_metrics ADD COLUMN comment_count INTEGER DEFAULT 0"),
+        ("article_feedback", "ALTER TABLE article_feedback ADD COLUMN metaphors_used TEXT DEFAULT ''"),
     ]
     for table, sql in migrations:
         if table in existing:

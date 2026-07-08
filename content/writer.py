@@ -14,7 +14,32 @@ async def run_writer(state, runtime) -> dict:
 
     persona_injection = get_persona_prompt_injection(state.persona_config) if state.persona_config else ""
 
-    user_msg = f"""## 话题
+    # Detect co-writing mode: seed_text = user draft to polish
+    if state.seed_text and state.seed_text.strip():
+        polish_prompt = """你是微信公众号的润色编辑。以下是作者写的初稿。这不是一篇需要压缩的素材——这是一篇已经写好的文章，需要你精修。
+
+你的任务：保持作者全部观点、叙事顺序、场景跳跃、个人风格，逐段润色。
+
+规则：
+- 保留每一个作者写到的场景和人物——不能删
+- 保留所有个人判断和跨界联想（如郭柯宇类比）——这是作者的声音
+- 保留原文的层叠结构：隐喻→情节→人物→感悟，不改成"总分总"
+- 只做：顺语句、调节奏、润标题、让段落间过渡更自然
+- 改写每段的开头，让第一句更有吸引力
+- 字数不能比原文少，只能更丰富
+- 禁止：压缩、删场景、加作者没说的观点、套模板
+
+输出JSON：{title, content_markdown, estimated_read_time}"""
+        full_system_prompt = persona_injection + "\n\n" + polish_prompt if persona_injection else polish_prompt
+        user_msg = f"""## 原标题（可优化）
+{state.draft_title or state.selected_topic}
+
+## 作者初稿
+{state.seed_text}
+
+请润色这篇初稿，保持作者的个人风格和观点。"""
+    else:
+        user_msg = f"""## 话题
 {state.selected_topic}
 
 ## 切入角度
@@ -24,9 +49,7 @@ async def run_writer(state, runtime) -> dict:
 {state.research_data}
 
 请根据以上信息撰写一篇微信公众号文章。"""
-
-    # Inject persona into system prompt
-    full_system_prompt = persona_injection + "\n\n" + WRITER_SYSTEM_PROMPT if persona_injection else WRITER_SYSTEM_PROMPT
+        full_system_prompt = persona_injection + "\n\n" + WRITER_SYSTEM_PROMPT if persona_injection else WRITER_SYSTEM_PROMPT
 
     try:
         resp = await acall_llm(
