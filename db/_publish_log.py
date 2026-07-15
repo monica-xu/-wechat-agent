@@ -12,8 +12,8 @@ def save_publish_log(log_entry: dict) -> int:
                 review_trace, total_duration_ms, llm_call_count, rewrite_count,
                 critic_overall_score, final_stage, failure_reason, publish_mode,
                 wechat_draft_id, wechat_publish_id, publish_status, publish_error,
-                human_mode, human_approved_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                human_mode, human_approved_at, narrative_shape)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             log_entry.get("article_id", ""),
             log_entry.get("session_id", ""),
@@ -33,6 +33,7 @@ def save_publish_log(log_entry: dict) -> int:
             log_entry.get("publish_error", ""),
             log_entry.get("human_mode", "auto"),
             log_entry.get("human_approved_at", ""),
+            log_entry.get("narrative_shape", ""),
         ))
     return cursor.lastrowid
 

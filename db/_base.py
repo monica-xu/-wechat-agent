@@ -209,6 +209,9 @@ def _migrate(conn):
     cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     existing = {row[0] for row in cursor.fetchall()}
     migrations = [
+        ("articles", "ALTER TABLE articles ADD COLUMN narrative_shape TEXT DEFAULT ''"),
+        ("articles", "ALTER TABLE articles ADD COLUMN opening_type TEXT DEFAULT ''"),
+        ("publish_log", "ALTER TABLE publish_log ADD COLUMN narrative_shape TEXT DEFAULT ''"),
         ("article_feedback", "ALTER TABLE article_feedback ADD COLUMN edited_markdown TEXT DEFAULT ''"),
         ("article_feedback", "ALTER TABLE article_feedback ADD COLUMN article_type TEXT DEFAULT ''"),
         ("article_feedback", "ALTER TABLE article_feedback ADD COLUMN edit_type TEXT DEFAULT ''"),

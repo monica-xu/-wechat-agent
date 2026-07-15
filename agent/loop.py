@@ -78,6 +78,15 @@ async def run_pipeline(state: ArticleState, runtime: AgentRuntime) -> ArticleSta
 async def handle_decide(state: ArticleState, runtime: AgentRuntime) -> ArticleState:
     from agent.policy_engine import compute_publish_score
 
+    # Co-writing mode: user provides content directly — bypass policy engine
+    if state.seed_text and state.seed_text.strip():
+        state.should_publish = True
+        state.publish_score = 1.0
+        state.decide_reason = "Co-writing mode — bypassing policy engine"
+        state.stage = "generate"
+        _append_trace(state, "DECIDE: co-writing mode, skipping policy engine")
+        return state
+
     result = await compute_publish_score(state, runtime)
 
     state.publish_score = result["publish_score"]
@@ -114,8 +123,24 @@ async def handle_generate(state: ArticleState, runtime: AgentRuntime) -> Article
     state.persona_config = persona
     _append_trace(state, f"PERSONA: {persona['key']} ({persona['name']})")
 
+    # -- Sub-stage 0b: Select narrative shape --
+    from content.narrative import get_next_shape
+    shape = get_next_shape(state.session_id)
+    state.narrative_shape_key = shape["key"]
+    state.narrative_shape_config = shape
+    _append_trace(state, f"SHAPE: {shape['key']} ({shape['name']})")
+
     # -- Sub-stage 2a: Topic --
-    if state.topic and state.topic.strip():
+    # Co-writing mode: seed_text is the content, skip auto topic selection
+    if state.seed_text and state.seed_text.strip():
+        state.selected_topic = f"协同写作（{state.seed_text[:40]}...）" if len(state.seed_text) > 40 else f"协同写作（{state.seed_text}）"
+        state.selected_angle = ""
+        state.topic_source = "co_writing"
+        state.generate_trace["topic"] = {
+            "topic": state.selected_topic, "angle": "", "source": "co_writing"
+        }
+        _append_trace(state, f"TOPIC (co-writing): {state.selected_topic[:80]}")
+    elif state.topic and state.topic.strip():
         # Manual override — use user-provided topic directly
         state.selected_topic = state.topic.strip()
         state.selected_angle = (state.angle or "").strip()
@@ -182,16 +207,17 @@ async def handle_generate(state: ArticleState, runtime: AgentRuntime) -> Article
         _append_trace(state, "GENERATE: Writer failed after all retries")
         return state
 
+    # Track whether co-writing was skipped (pre-check deemed article already good)
+    state.co_writing_skipped = writer_result.get("skipped", False)
+
     state.draft_title = writer_result.get("title", "")
     raw_md = writer_result.get("content_markdown", "")
-    # Strip 【PLAN】 section — keep only 【正文】 for formatting/publishing
-    if "【正文】" in raw_md:
-        raw_md = raw_md.split("【正文】", 1)[-1].strip()
     state.draft_content_markdown = raw_md
     state.generate_trace["writer"] = writer_result
     state.llm_call_count += 1
     runtime.llm_call_count += 1
-    _append_trace(state, f"WRITER: draft '{state.draft_title}' ({len(state.draft_content_markdown)} chars)")
+    _append_trace(state, f"WRITER: draft '{state.draft_title}' ({len(state.draft_content_markdown)} chars)"
+                  + (" (pre-check: already good, returned as-is)" if state.co_writing_skipped else ""))
 
     state.stage = "review"
     return state
@@ -325,13 +351,42 @@ async def _rewrite_and_return(state: ArticleState, runtime: AgentRuntime) -> Art
     """Execute one rewrite iteration, then go back to review."""
     from content.writer import run_rewrite
 
-    _append_trace(state, f"GENERATE (rewrite {state.rewrite_count}): rewriting...")
+    _append_trace(state, f"GENERATE (rewrite {state.rewrite_count}): running deep evaluation...")
+
+    # Run deep evaluation for specific, actionable rewrite guidance
+    try:
+        import json as _json
+        from agent.prompts import EVALUATION_PROMPT
+        from infra.llm import acall_llm
+
+        eval_user_msg = f"文章标题：{state.draft_title}\n\n文章正文：\n{state.draft_content_markdown}"
+        eval_resp = await acall_llm(
+            EVALUATION_PROMPT, eval_user_msg,
+            provider=runtime.llm_provider, temperature=0.4, json_mode=True,
+            trace_stage="deep_eval_rewrite",
+        )
+        deep_eval = _json.loads(eval_resp)
+        state.review_trace["deep_eval"] = deep_eval
+        state.llm_call_count += 1
+        runtime.llm_call_count += 1
+
+        # Build specific rewrite instructions from deep evaluation
+        dim_feedback = []
+        for k, v in deep_eval.get("dimensions", {}).items():
+            if v.get("score", 1.0) < 0.85:
+                dim_feedback.append(f"- [{k}] {v.get('feedback', '')}")
+        dim_text = "\n".join(dim_feedback[:4]) if dim_feedback else "各项基本达标"
+
+        state.critic_feedback = dim_text
+        state.critic_rewrite_instructions = deep_eval.get("one_thing_to_fix", "")
+        _append_trace(state, f"DEEP EVAL: overall={deep_eval.get('overall_score', 0):.2f}, fix={state.critic_rewrite_instructions[:80]}")
+    except Exception as e:
+        _append_trace(state, f"DEEP EVAL failed (falling back to critic): {e}")
+        # Fallback: use existing critic feedback (already set in handle_review)
     try:
         rewrite_result = await run_rewrite(state, runtime)
         state.draft_title = rewrite_result.get("title", state.draft_title)
         raw_md = rewrite_result.get("content_markdown", state.draft_content_markdown)
-        if "【正文】" in raw_md:
-            raw_md = raw_md.split("【正文】", 1)[-1].strip()
         state.draft_content_markdown = raw_md
         state.generate_trace["writer"] = rewrite_result
         state.llm_call_count += 1
@@ -465,8 +520,13 @@ async def _run_primary_critic(state: ArticleState, runtime: AgentRuntime) -> dic
     from agent.prompts import CRITIC_PRIMARY_PROMPT
 
     user_msg = f"文章标题：{state.draft_title}\n\n文章正文：\n{state.draft_content_markdown}"
+    # Inject narrative shape info into critic prompt
+    critic_primary_prompt = CRITIC_PRIMARY_PROMPT
+    shape = state.narrative_shape_config
+    critic_primary_prompt = critic_primary_prompt.replace("{narrative_shape_name}", shape.get("name", "自由式"))
+    critic_primary_prompt = critic_primary_prompt.replace("{narrative_shape_key}", shape.get("key", "free"))
     try:
-        resp = await acall_llm(CRITIC_PRIMARY_PROMPT, user_msg, provider=runtime.llm_provider,
+        resp = await acall_llm(critic_primary_prompt, user_msg, provider=runtime.llm_provider,
                                temperature=0.3, json_mode=True, trace_stage="critic_primary")
         result = json.loads(resp)
         result["pass"] = result.get("overall_score", 0) >= 0.7
@@ -573,6 +633,8 @@ async def _save_final_state(state: ArticleState, runtime: AgentRuntime) -> None:
             "tags": [],
             "topic": state.selected_topic,
             "angle": state.selected_angle,
+            "narrative_shape": state.narrative_shape_key,
+            "opening_type": "",  # Sprint B: classified in batch
             "status": "published" if state.stage == "done" and state.wechat_publish_id else "draft",
             "human_mode": state.human_mode,
             "critic_overall_score": state.critic_primary_score,
@@ -607,6 +669,7 @@ async def _save_final_state(state: ArticleState, runtime: AgentRuntime) -> None:
             "publish_error": state.publish_error,
             "human_mode": state.human_mode,
             "llm_call_count": state.llm_call_count,
+            "narrative_shape": state.narrative_shape_key,
         }
         save_publish_log(log_dict)
     except Exception as e:

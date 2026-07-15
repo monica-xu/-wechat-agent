@@ -141,14 +141,19 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
   <div class="panel" id="panel-pipeline">
     <div class="section-title">流水线控制</div>
     <div class="card" style="margin-bottom:16px">
-      <div class="label">选题（可选 — 留空则自动选题）</div>
+      <div class="label">📝 协同写作 <span id="seed-count" style="font-weight:400;color:var(--accent)"></span>
+        <select id="co-writing-mode" style="margin-left:8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:12px">
+          <option value="raw">裸润色（等同 DeepSeek 官网 chat 效果）</option>
+          <option value="polish">轻润色（只修明显问题）</option>
+          <option value="expand">扩充（逐段展开、加细节、推深观点）</option>
+        </select>
+      </div>
+      <textarea id="seed-input" placeholder="在这里粘贴你写好的初稿……&#10;&#10;轻润色：只修明显问题（重复、过长句子、平淡开头），不动好句子。&#10;扩充：逐段展开、增加细节、推深观点。&#10;如果留空，系统会自动选题+研究+写作。" style="width:100%;height:140px;margin-top:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;font-size:13px;resize:vertical" oninput="updateSeedCount()"></textarea>
+      <div class="label" style="margin-top:12px">或指定话题（留空则自动选题）</div>
       <div class="form-row">
         <div class="form-group"><label>Topic</label><input type="text" id="topic-input" placeholder="留空则自动选题" style="width:100%"></div>
         <div class="form-group"><label>Angle（角度）</label><input type="text" id="angle-input" placeholder="可选" style="width:100%"></div>
       </div>
-      <details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--text-muted)">✏️ 协同写作（粘贴你的初稿，系统润色）</summary>
-        <textarea id="seed-input" placeholder="粘贴你写的初稿…" style="width:100%;height:120px;margin-top:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;font-size:12px;resize:vertical"></textarea>
-      </details>
       <div id="candidate-topics" style="margin-top:8px;font-size:12px;color:var(--text-muted)"></div>
       <div class="btn-group" style="margin-top:12px">
         <button class="btn" id="btn-dry" onclick="triggerPipeline('dry-run')">🖊 Dry Run</button>
@@ -419,18 +424,27 @@ function renderPipelineControls() {
   document.getElementById('btn-resume').style.display = APP.killActive ? '' : 'none';
 }
 
+function updateSeedCount() {
+  const el = document.getElementById('seed-count');
+  const len = (document.getElementById('seed-input')?.value || '').length;
+  el.textContent = len ? `— ${len} 字` : '';
+}
 async function triggerPipeline(mode, force = false) {
   if (document.getElementById('chk-force').checked) force = true;
   const topic = document.getElementById('topic-input')?.value || '';
   const angle = document.getElementById('angle-input')?.value || '';
   const seed = document.getElementById('seed-input')?.value || '';
+  const coWritingMode = document.getElementById('co-writing-mode')?.value || 'polish';
   const btn = event?.target;
   if (btn) { btn.disabled = true; btn.textContent += '...'; }
   try {
-    const result = await api('POST', '/api/pipeline/trigger', { mode, force, topic, angle, seed_text: seed });
+    if (seed.trim()) showToast(`协同写作模式：初稿 ${seed.length} 字`, 'info');
+    const result = await api('POST', '/api/pipeline/trigger', { mode, force, topic, angle, seed_text: seed, co_writing_mode: coWritingMode });
     APP.state.triggerResult = result;
     renderTriggerResult(result);
-    showToast(`触发成功: ${result.article_id} — ${result.final_stage}`, result.final_stage === 'done' ? 'success' : 'error');
+    const coLabel = result.co_writing ? ' （协同写作）' : '';
+    const skipNote = result.skipped ? ' — 文章已足够好，保持原样' : '';
+    showToast(`触发成功: ${result.article_id} — ${result.final_stage}${coLabel}${skipNote}`, result.final_stage === 'done' ? 'success' : 'error');
     setTimeout(() => fetchWithGuard('overview', async () => {
       const [health, status] = await Promise.all([api('GET','/api/system/health'), api('GET','/api/pipeline/status')]);
       APP.state.health = health; APP.state.status = status; renderOverview(); updateHeader();
@@ -637,13 +651,44 @@ async function viewArticle(id) {
       </div>
       <div class="modal-actions">
         ${a.status==='draft'?`<button class="btn accent" onclick="approveArticle('${a.id}')">✓ 批准发布</button><button class="btn red" onclick="rejectArticle('${a.id}')">✗ 拒绝</button>`:''}
+        <button class="btn" onclick="evaluateArticle('${a.id}')">📊 深度评审</button>
         <button class="btn" onclick="deleteArticle('${a.id}');closeModal()">🗑 删除</button>
-      </div>`;
+      </div>
+      <div id="eval-result-${a.id}" style="margin-top:12px;padding:12px;background:var(--bg);border-radius:8px;display:none"></div>`;
     // Populate raw HTML for clipboard copy
     const rawDiv = document.getElementById('article-raw-html-' + a.id);
     if (rawDiv && a.content) rawDiv.innerHTML = a.content;
     document.getElementById('modal-overlay').classList.add('show');
   } catch (e) { showToast('加载文章失败: ' + e.message, 'error'); }
+}
+
+async function evaluateArticle(id) {
+  const resultDiv = document.getElementById('eval-result-' + id);
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = '<span style="color:var(--text-muted)">⏳ 评审中...</span>';
+  try {
+    const result = await api('POST', '/api/articles/' + id + '/evaluate');
+    const dims = result.dimensions || {};
+    const dimNames = {
+      information_density: '信息密度', originality: '原创性', readability: '可读性',
+      engagement: '吸引力', structure: '结构', narrative_coherence: '叙事完成度'
+    };
+    let html = `<div style="font-size:14px;margin-bottom:8px">📊 综合评分：<b style="color:var(--accent);font-size:18px">${(result.overall_score||0).toFixed(2)}</b></div>`;
+    html += '<table style="font-size:12px"><tr><th>维度</th><th>分</th><th>评价</th></tr>';
+    for (const [k, v] of Object.entries(dims)) {
+      html += `<tr><td>${dimNames[k]||k}</td><td style="color:var(--accent)">${(v.score||0).toFixed(2)}</td><td>${escHtml(v.feedback||'')}${v.quote?` <span style="color:var(--text-dim)">— "${escHtml(v.quote).substring(0,60)}"</span>`:''}</td></tr>`;
+    }
+    html += '</table>';
+    if (result.one_thing_to_fix) {
+      html += `<div style="margin-top:8px;padding:8px;background:rgba(245,158,11,.1);border-left:3px solid var(--yellow);font-size:13px">🔧 <b>改一处：</b>${escHtml(result.one_thing_to_fix)}</div>`;
+    }
+    if (result.best_line) {
+      html += `<div style="margin-top:4px;padding:8px;background:rgba(7,193,96,.1);border-left:3px solid var(--accent);font-size:13px">✨ <b>最佳：</b>${escHtml(result.best_line)}</div>`;
+    }
+    resultDiv.innerHTML = html;
+  } catch (e) {
+    resultDiv.innerHTML = `<span style="color:var(--red)">评审失败: ${e.message}</span>`;
+  }
 }
 
 async function approveArticle(id) {
@@ -672,6 +717,10 @@ function selectFeedback(articleId, status) {
   document.getElementById('fb-rejected-'+articleId).className = status==='rejected'?'btn red':'btn';
   const editArea = document.getElementById('fb-edit-area-'+articleId);
   if (editArea) editArea.style.display = status === 'edited' ? 'block' : 'none';
+  // Auto-submit for adopted/rejected (no extra fields needed)
+  if (status === 'adopted' || status === 'rejected') {
+    submitFeedback(articleId);
+  }
 }
 
 function fillEditedContent(articleId) {

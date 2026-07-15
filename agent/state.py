@@ -42,11 +42,15 @@ class ArticleState:
     # -- GENERATE: Persona --
     persona_key: str = ""  # analytical | narrative | contrarian
     persona_config: dict = field(default_factory=dict)
+    narrative_shape_key: str = ""       # loop | detail | question | contrast | assertion | scene | progression | mosaic
+    narrative_shape_config: dict = field(default_factory=dict)
 
     # -- GENERATE: Topic --
     topic: str = ""          # user input override (optional)
     angle: str = ""          # user input angle (optional)
     seed_text: str = ""      # user draft for co-writing mode (bypasses research)
+    co_writing_mode: str = "polish"  # polish | expand
+    co_writing_skipped: bool = False  # pre-check deemed article already good
     selected_topic: str = "" # final execution topic (always set)
     selected_angle: str = ""
     topic_source: str = ""   # auto | pool | trending | manual

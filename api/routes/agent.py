@@ -15,6 +15,7 @@ class TriggerRequest(BaseModel):
     topic: str = ""   # optional manual topic override
     angle: str = ""   # optional manual angle
     seed_text: str = ""  # optional user draft for co-writing mode
+    co_writing_mode: str = "polish"  # polish | expand
 
 
 @router.post("/pipeline/trigger")
@@ -41,6 +42,7 @@ async def trigger_pipeline(req: TriggerRequest):
     # Seed text for co-writing mode (optional) — bypasses research
     if req.seed_text and req.seed_text.strip():
         state.seed_text = req.seed_text.strip()
+        state.co_writing_mode = req.co_writing_mode if req.co_writing_mode in ("polish", "expand") else "polish"
     runtime = AgentRuntime(
         session_id=sid,
         article_id=article_id,
@@ -58,6 +60,8 @@ async def trigger_pipeline(req: TriggerRequest):
         "critic_score": state.critic_primary_score,
         "wechat_draft_id": state.wechat_draft_id,
         "wechat_publish_id": state.wechat_publish_id,
+        "co_writing": bool(state.seed_text and state.seed_text.strip()),
+        "skipped": state.co_writing_skipped,
         "trace": state.trace[-10:],  # Last 10 trace entries
     }
 

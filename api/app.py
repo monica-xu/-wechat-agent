@@ -66,10 +66,27 @@ app.include_router(webhook.router, prefix="/api", tags=["webhook"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 
 # Serve dashboard static files
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 _static_dir = os.path.join(os.path.dirname(__file__), "static")
 os.makedirs(_static_dir, exist_ok=True)
-app.mount("/dashboard", StaticFiles(directory=_static_dir, html=True), name="dashboard")
+# Cache the dashboard HTML in memory for fast response
+_DASHBOARD_HTML: str = ""
+def _load_dashboard_html() -> str:
+    global _DASHBOARD_HTML
+    if not _DASHBOARD_HTML:
+        _html_path = os.path.join(_static_dir, "index.html")
+        if os.path.exists(_html_path):
+            with open(_html_path, "r", encoding="utf-8") as f:
+                _DASHBOARD_HTML = f.read()
+    return _DASHBOARD_HTML
+
+@app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
+async def serve_dashboard():
+    return _load_dashboard_html()
+
+@app.get("/dashboard/", response_class=HTMLResponse, include_in_schema=False)
+async def serve_dashboard_slash():
+    return _load_dashboard_html()
 
 
 @app.get("/")

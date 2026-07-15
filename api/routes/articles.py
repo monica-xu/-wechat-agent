@@ -194,3 +194,38 @@ async def get_feedback_stats():
         "rejected": rejected,
         "adoption_rate": rate,
     }
+
+
+# ---- Deep Evaluation ----
+
+@router.post("/articles/{article_id}/evaluate")
+async def evaluate_article(article_id: str):
+    """Deep-review an article with specific, actionable feedback."""
+    from db._articles import get_article
+    from agent.prompts import EVALUATION_PROMPT
+    from infra.llm import acall_llm
+    import json
+
+    article = get_article(article_id)
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    title = article.get("title", "")
+    content = article.get("content_markdown", "") or article.get("content", "")
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="Article has no content")
+
+    user_msg = f"文章标题：{title}\n\n文章正文：\n{content}"
+    try:
+        provider = os.getenv("LLM_PROVIDER", "deepseek")
+        resp = await acall_llm(
+            EVALUATION_PROMPT, user_msg,
+            provider=provider, temperature=0.4, json_mode=True,
+            trace_stage="deep_evaluation",
+        )
+        result = json.loads(resp)
+        result["article_id"] = article_id
+        result["title"] = title
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Evaluation failed: {e}")

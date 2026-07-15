@@ -33,7 +33,7 @@ CLAUDE_API_KEY=sk-ant-your-claude-key
 ### 3. 启动
 
 ```bash
-python -m uvicorn api.app:app --host 0.0.0.0 --port 8000
+python -m uvicorn api.app:app --host 0.0.0.0 --port 8080
 ```
 
 启动后自动初始化数据库、注册定时任务。默认以 **dry-run** 模式运行（只生成不发布）。

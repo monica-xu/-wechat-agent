@@ -19,6 +19,7 @@ def save_article(state_dict: dict) -> str:
                 "critic_adversarial_score", "integrity_style_drift", "integrity_contradiction",
                 "integrity_template_risk", "embedding", "embedding_model", "content_hash",
                 "wechat_draft_id", "wechat_publish_id", "published_at",
+                "narrative_shape", "opening_type",
             ]
             sets = [f"{f} = ?" for f in fields]
             values = [_safe_get(state_dict, f) for f in fields]
@@ -33,8 +34,9 @@ def save_article(state_dict: dict) -> str:
                     tags, topic, angle, status, human_mode, critic_overall_score,
                     critic_dimension_scores, critic_adversarial_score, integrity_style_drift,
                     integrity_contradiction, integrity_template_risk, embedding,
-                    embedding_model, content_hash, wechat_draft_id, wechat_publish_id, published_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    embedding_model, content_hash, wechat_draft_id, wechat_publish_id, published_at,
+                    narrative_shape, opening_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 state_dict["article_id"],
                 state_dict.get("session_id", ""),
@@ -59,6 +61,8 @@ def save_article(state_dict: dict) -> str:
                 state_dict.get("wechat_draft_id", ""),
                 state_dict.get("wechat_publish_id", ""),
                 state_dict.get("published_at", ""),
+                state_dict.get("narrative_shape", ""),
+                state_dict.get("opening_type", ""),
             ))
 
     return state_dict["article_id"]
