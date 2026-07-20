@@ -118,15 +118,23 @@ async def run_writer(state, runtime) -> dict:
 输出JSON：{{title, content_markdown, estimated_read_time}}"""
         parts = [p for p in [persona_injection, narrative_injection, polish_prompt] if p]
         full_system_prompt = "\n\n".join(parts)
-        user_msg = f"""## 原标题（可优化）
+        from datetime import datetime
+        today = datetime.now().strftime("%Y年%m月%d日")
+        user_msg = f"""当前日期：{today}
+
+## 原标题（可优化）
 {state.draft_title or state.selected_topic}
 
 ## 作者初稿
 {state.seed_text}
 
-请润色这篇初稿，保持作者的个人风格和观点。"""
+请润色这篇初稿，保持作者的个人风格和观点。注意：所有时间信息必须以{today}为基准。"""
     else:
-        user_msg = f"""## 话题
+        from datetime import datetime
+        today = datetime.now().strftime("%Y年%m月%d日")
+        user_msg = f"""当前日期：{today}
+
+## 话题
 {state.selected_topic}
 
 ## 切入角度
@@ -135,7 +143,7 @@ async def run_writer(state, runtime) -> dict:
 ## 研究笔记
 {state.research_data}
 
-请根据以上信息撰写一篇微信公众号文章。"""
+请根据以上信息撰写一篇微信公众号文章。注意：所有时间信息必须以{today}为基准推算。"""
         # Inject narrative injection into WRITER_SYSTEM_PROMPT template
         writer_system = WRITER_SYSTEM_PROMPT.replace("{narrative_injection}", narrative_injection)
         parts = [p for p in [persona_injection, writer_system] if p]
