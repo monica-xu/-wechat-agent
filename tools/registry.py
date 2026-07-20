@@ -33,6 +33,18 @@ TOOLS = [
         },
     },
     {
+        "name": "search_web",
+        "description": "使用 Google 搜索网页，获取实时信息、数据、事实和最新资料。适合查找具体数据、价格、日期、事件等需要准确信息的场景。",
+        "category": "research",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "搜索查询词"},
+                "count": {"type": "integer", "description": "返回数量，默认5"},
+            },
+        },
+    },
+    {
         "name": "find_similar_articles",
         "description": "查询与给定文本相似的历史文章",
         "category": "memory",
@@ -77,7 +89,7 @@ TOOLS = [
 
 # Category definitions
 TOOL_CATEGORIES = {
-    "research": ["search_trending", "search_news"],
+    "research": ["search_trending", "search_news", "search_web"],
     "memory": ["find_similar_articles", "get_topic_cooldown"],
     "wechat": ["get_publish_stats", "get_draft_stats"],
 }
@@ -122,6 +134,7 @@ def get_tool_map() -> dict:
     return {
         "search_trending": _tool_search_trending,
         "search_news": _tool_search_news,
+        "search_web": _tool_search_web,
         "find_similar_articles": _tool_find_similar,
         "get_topic_cooldown": _tool_topic_cooldown,
         "get_publish_stats": _tool_publish_stats,
@@ -159,3 +172,8 @@ async def _tool_publish_stats() -> dict:
 async def _tool_draft_stats() -> dict:
     from tools.wechat import get_draft_count
     return await get_draft_count()
+
+
+async def _tool_search_web(query: str = "", count: int = 5) -> list:
+    from tools.research import search_web
+    return await search_web(query, count)
