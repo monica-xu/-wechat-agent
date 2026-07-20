@@ -13,10 +13,6 @@ logger = logging.getLogger(__name__)
 NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
 NEWSAPI_URL = "https://newsapi.org/v2/top-headlines"
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID", "")
-GOOGLE_SEARCH_URL = "https://www.googleapis.com/customsearch/v1"
-
 
 async def fetch_headlines(country: str = "us", count: int = 10) -> list[dict]:
     """Fetch real-time headlines from NewsAPI.
@@ -122,42 +118,29 @@ async def search_news(topic: str = "", freshness: str = "week") -> list:
 
 
 async def search_web(query: str, count: int = 5) -> list[dict]:
-    """Search the web using Google Custom Search JSON API.
+    """Search the web using DuckDuckGo (free, no API key needed).
 
     Returns list of {title, snippet, url, source} dicts.
-    Falls back to empty list if API key not configured.
     """
-    if not GOOGLE_API_KEY or GOOGLE_API_KEY.startswith("your-"):
-        logger.info("GOOGLE_API_KEY not configured, web search unavailable")
-        return []
-
     try:
-        params = {
-            "key": GOOGLE_API_KEY,
-            "cx": GOOGLE_CSE_ID,
-            "q": query,
-            "num": min(count, 10),
-            "lr": "lang_zh-CN",
-        }
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(GOOGLE_SEARCH_URL, params=params)
-            if resp.status_code != 200:
-                logger.warning(f"Google Search returned {resp.status_code}: {resp.text[:200]}")
-                return []
+        from ddgs import DDGS
 
-            data = resp.json()
-            items = data.get("items", [])
-            results = []
-            for item in items[:count]:
+        results = []
+        with DDGS() as ddgs:
+            for r in ddgs.text(query, max_results=count):
                 results.append({
-                    "title": item.get("title", ""),
-                    "snippet": item.get("snippet", ""),
-                    "url": item.get("link", ""),
-                    "source": item.get("displayLink", ""),
+                    "title": r.get("title", ""),
+                    "snippet": r.get("body", ""),
+                    "url": r.get("href", ""),
+                    "source": r.get("href", "").split("/")[2] if r.get("href") else "",
                 })
-            logger.info(f"Google Search: '{query}' → {len(results)} results")
-            return results
 
+        logger.info(f"DuckDuckGo: '{query}' → {len(results)} results")
+        return results
+
+    except ImportError:
+        logger.warning("ddgs not installed. Run: pip install ddgs")
+        return []
     except Exception as e:
-        logger.warning(f"Google Search failed: {e}")
+        logger.warning(f"DuckDuckGo search failed: {e}")
         return []

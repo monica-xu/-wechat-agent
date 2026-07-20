@@ -34,7 +34,7 @@ TOOLS = [
     },
     {
         "name": "search_web",
-        "description": "使用 Google 搜索网页，获取实时信息、数据、事实和最新资料。适合查找具体数据、价格、日期、事件等需要准确信息的场景。",
+        "description": "使用 DuckDuckGo 搜索网页，获取实时信息、数据、事实和最新资料。免费，无需 API Key。适合查找具体数据、价格、日期、事件等需要准确信息的场景。",
         "category": "research",
         "parameters": {
             "type": "object",
