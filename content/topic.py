@@ -170,14 +170,25 @@ async def _extract_tensions(headlines: list[dict], provider: str) -> list[dict]:
 
 
 async def refresh_topic_pool(session_id: str) -> None:
-    """Refresh the topic pool. Branches by topic_source config."""
+    """Refresh the topic pool. Branches by topic_source config.
+
+    When topic_focus is set, prefers books/lens mode because news-based
+    generation pulls from NewsAPI headlines which are mostly politics/economy
+    — a poor fit for humanities/culture/tech focus areas.
+    """
     import os
     from db._config import RuntimeConfig
     from db._content_memory import clear_topic_pool
     clear_topic_pool(session_id)
 
     source = RuntimeConfig.get("topic_source", "")
-    if source == "books":
+    focus = RuntimeConfig.get("topic_focus", "")
+
+    # If user has a specific focus, use books/lens mode — news headlines
+    # won't match humanities/culture/tech topics well
+    if focus and focus.strip():
+        await _generate_from_books(session_id)
+    elif source == "books":
         await _generate_from_books(session_id)
     elif source == "news":
         await _generate_from_news(session_id)
@@ -205,24 +216,31 @@ async def _generate_from_books(session_id: str) -> None:
     if reading_list and reading_list.strip():
         book_hint = f"""从以下书单中选题：
 {reading_list.strip()}"""
+        source_desc = "以下书单"
+    elif focus:
+        book_hint = f"基于聚焦方向「{focus}」，从你的知识库中推荐值得写的书籍、文化现象、思想命题或科技趋势。"
+        source_desc = "聚焦方向"
     else:
         book_hint = "从你的知识库中推荐值得写书评/读后感的书籍。"
+        source_desc = "你的知识库"
 
-    prompt = f"""你是书评/读后感公众号编辑。{focus_line}
+    prompt = f"""你是深度文化评论公众号编辑。{focus_line}
 
+选题来源：{source_desc}
 {book_hint}
 
-步骤1：为每本书先选一个"阅读透镜"（Lens），决定今天为什么值得写：
-- 现代映射：这本书解释了今天正在发生的什么？
-- 认知反转：这本书的哪个观点和常识相反？
-- 现实冲突：这本书的哪个判断在现实中碰壁了？
-- 被误读：这本书被大众误解最深的是什么？
-- 为什么今天重读：这本书在当下为什么突然重要了？
+步骤1：为每个选题先选一个"思想透镜"（Lens），决定今天为什么值得写：
+- 现代映射：这本书/这个现象解释了今天正在发生的什么？
+- 认知反转：哪个观点和常识相反？
+- 现实冲突：哪个判断在现实中碰壁了？
+- 被误读：什么被大众误解最深？
+- 为什么今天关注：这个命题在当下为什么突然重要了？
 
 步骤2：基于选定的 Lens，生成公众号选题。
 
 要求：
-- 标题必须同时包含书名/作者 + Lens + 可争议观点
+- 标题必须包含具体对象（书名/人物/现象） + Lens + 可争议观点
+- 如果是书评/影评，标题里要有书名号
 - 禁止："X读后感""从X看Y"等模板
 - 禁止新闻语气、学术结构句
 
@@ -231,9 +249,9 @@ async def _generate_from_books(session_id: str) -> None:
 - 认知反转：《思考快与慢》真正难学的不是理论，而是承认自己会错
 - 现实冲突：为什么《原则》在硅谷被奉为圣经，在中国企业却水土不服？
 - 被误读：《乌合之众》不是群众非理性的证明，而是精英引导的狂欢
-- 为什么今天重读：当AI开始替你思考，《娱乐至死》的预言进入了下一阶段
+- 为什么今天关注：当AI开始替你思考，《娱乐至死》的预言进入了下一阶段
 
-输出JSON：[{{"topic":"...","reason":"基于什么Lens（20字）","category":"书评/思想","trend_score":0.8}}]"""
+输出JSON：[{{"topic":"...","reason":"基于什么Lens（20字）","category":"书评/思想/文化/科技","trend_score":0.8}}]"""
 
     try:
         resp = await acall_llm(prompt, "推荐5个书评/读后感选题。", provider=provider,
