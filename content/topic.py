@@ -201,15 +201,31 @@ async def refresh_topic_pool(session_id: str) -> None:
 
 
 async def _generate_from_books(session_id: str) -> None:
-    """Book review / reading notes topic generation."""
+    """Lens-based topic generation. Uses web search as seed material when available."""
     import os
     from infra.llm import acall_llm
     from db._content_memory import save_topic_pool
     from db._config import RuntimeConfig
+    from tools.research import search_web
 
     provider = os.getenv("LLM_PROVIDER", "deepseek")
     focus = RuntimeConfig.get("topic_focus", "")
     reading_list = RuntimeConfig.get("reading_list", "")
+
+    # Pre-search the web for current cultural/tech topics as seed material
+    web_context = ""
+    if not reading_list:
+        try:
+            search_query = f"{focus} 文化 现象 趋势 2026" if focus else "文化现象 科技趋势 2026"
+            web_results = await search_web(search_query, count=5)
+            if web_results:
+                web_context = "\n\n## 当前网络上的相关讨论（供参考，不要直接照抄）\n"
+                for r in web_results:
+                    web_context += f"- {r['title']}：{r['snippet'][:120]}\n"
+                web_context += "\n请基于以上当前动态 + 你的知识库，生成选题。选题要比这些新闻更深一层——不是复述现象，是提取认知冲突。\n"
+                logger.info(f"Topic generation: web search → {len(web_results)} results")
+        except Exception as e:
+            logger.warning(f"Topic web search failed: {e}")
     focus_line = f"聚焦方向：{focus}。" if focus else ""
 
     book_hint = ""
@@ -228,6 +244,7 @@ async def _generate_from_books(session_id: str) -> None:
 
 选题来源：{source_desc}
 {book_hint}
+{web_context}
 
 步骤1：为每个选题先选一个"思想透镜"（Lens），决定今天为什么值得写：
 - 现代映射：这本书/这个现象解释了今天正在发生的什么？
