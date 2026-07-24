@@ -212,6 +212,7 @@ async def _generate_from_books(session_id: str) -> None:
     focus = RuntimeConfig.get("topic_focus", "")
     reading_list = RuntimeConfig.get("reading_list", "")
 
+    web_context = ""
     # Pre-search the web for current cultural/tech topics as seed material.
     # If search succeeds, generate topics purely from search results (no LLM free-association).
     if not reading_list:
@@ -318,8 +319,8 @@ async def _generate_from_web_results(session_id: str, focus: str, web_results: l
         resp = await acall_llm(prompt, f"基于{len(web_results)}条搜索结果生成5个选题。", provider=provider,
                                temperature=0.6, json_mode=True, trace_stage="topic_from_web")
         topics = _safe_json_parse(resp)
-        if isinstance(topics, dict) and "topics" in topics:
-            topics = topics["topics"]
+        if isinstance(topics, dict):
+            topics = topics.get("topics") or topics.get("选题") or topics.get("items") or []
         if isinstance(topics, list) and len(topics) > 0:
             save_topic_pool(session_id, topics)
             logger.info(f"Topic pool refreshed (web): {len(topics)} topics added")
