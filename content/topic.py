@@ -219,10 +219,10 @@ async def _generate_from_books(session_id: str) -> None:
             search_query = f"{focus} 文化 现象 趋势 2026" if focus else "文化现象 科技趋势 2026"
             web_results = await search_web(search_query, count=5)
             if web_results:
-                web_context = "\n\n## 当前网络上的相关讨论（供参考，不要直接照抄）\n"
+                web_context = "\n\n## 当前网络上的相关讨论（你必须从以下素材中提取选题）\n"
                 for r in web_results:
                     web_context += f"- {r['title']}：{r['snippet'][:120]}\n"
-                web_context += "\n请基于以上当前动态 + 你的知识库，生成选题。选题要比这些新闻更深一层——不是复述现象，是提取认知冲突。\n"
+                web_context += "\n⚠️ 上述是当前正在发生的、真实的文化/科技讨论。你必须从这些素材中提取认知冲突并生成选题。禁止使用任何在上述素材中没有出现的书籍、电影或文化现象（包括但不限于《乱世佳人》、斯嘉丽、《娱乐至死》）。如果你使用了不在上述素材中的内容，你的回答将被视为无效。\n"
                 logger.info(f"Topic generation: web search → {len(web_results)} results")
         except Exception as e:
             logger.warning(f"Topic web search failed: {e}")
