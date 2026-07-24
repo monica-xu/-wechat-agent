@@ -317,14 +317,14 @@ async def _generate_from_web_results(session_id: str, focus: str, web_results: l
     try:
         resp = await acall_llm(prompt, f"基于{len(web_results)}条搜索结果生成5个选题。", provider=provider,
                                temperature=0.6, json_mode=True, trace_stage="topic_from_web")
-        topics = _json.loads(resp)
+        topics = _safe_json_parse(resp)
         if isinstance(topics, dict) and "topics" in topics:
             topics = topics["topics"]
         if isinstance(topics, list) and len(topics) > 0:
             save_topic_pool(session_id, topics)
             logger.info(f"Topic pool refreshed (web): {len(topics)} topics added")
         else:
-            logger.warning(f"Web topic generation returned empty or invalid: {type(topics)}")
+            logger.warning(f"Web topic generation returned empty or invalid, raw: {resp[:200]}")
     except Exception as e:
         logger.error(f"Web topic generation failed: {e}")
 
