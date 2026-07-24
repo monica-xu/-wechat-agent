@@ -212,20 +212,18 @@ async def _generate_from_books(session_id: str) -> None:
     focus = RuntimeConfig.get("topic_focus", "")
     reading_list = RuntimeConfig.get("reading_list", "")
 
-    # Pre-search the web for current cultural/tech topics as seed material
-    web_context = ""
+    # Pre-search the web for current cultural/tech topics as seed material.
+    # If search succeeds, generate topics purely from search results (no LLM free-association).
     if not reading_list:
         try:
             search_query = f"{focus} 文化 现象 趋势 2026" if focus else "文化现象 科技趋势 2026"
-            web_results = await search_web(search_query, count=5)
+            web_results = await search_web(search_query, count=8)
             if web_results:
-                web_context = "\n\n## 当前网络上的相关讨论（你必须从以下素材中提取选题）\n"
-                for r in web_results:
-                    web_context += f"- {r['title']}：{r['snippet'][:120]}\n"
-                web_context += "\n⚠️ 上述是当前正在发生的、真实的文化/科技讨论。你必须从这些素材中提取认知冲突并生成选题。禁止使用任何在上述素材中没有出现的书籍、电影或文化现象（包括但不限于《乱世佳人》、斯嘉丽、《娱乐至死》）。如果你使用了不在上述素材中的内容，你的回答将被视为无效。\n"
-                logger.info(f"Topic generation: web search → {len(web_results)} results")
+                logger.info(f"Topic generation: web search → {len(web_results)} results, extracting topics directly")
+                await _generate_from_web_results(session_id, focus, web_results, provider)
+                return
         except Exception as e:
-            logger.warning(f"Topic web search failed: {e}")
+            logger.warning(f"Topic web search failed, falling back to LLM: {e}")
     focus_line = f"聚焦方向：{focus}。" if focus else ""
 
     book_hint = ""
@@ -281,6 +279,54 @@ async def _generate_from_books(session_id: str) -> None:
             logger.info(f"Topic pool refreshed (books): {len(topics)} topics added")
     except Exception as e:
         logger.error(f"Book topic refresh failed: {e}")
+
+
+async def _generate_from_web_results(session_id: str, focus: str, web_results: list, provider: str) -> None:
+    """Generate topics purely from web search results — no LLM free-association.
+
+    The LLM is only allowed to base topics on the provided search results.
+    No book/film/person references that aren't in the results. This prevents
+    the LLM from defaulting to its training data's safest cultural references.
+    """
+    import json as _json
+    from db._content_memory import save_topic_pool
+
+    results_text = "\n".join(
+        f"{i+1}. [{r['title']}]({r['url']})\n   {r['snippet']}"
+        for i, r in enumerate(web_results)
+    )
+
+    focus_line = f"聚焦方向：{focus}。" if focus else ""
+
+    prompt = f"""你是公众号选题编辑。{focus_line}
+
+以下是通过搜索引擎获取的、当前正在被讨论的文化/科技话题：
+
+{results_text}
+
+从以上话题中，为每个话题提取一个认知冲突（人们原本相信X vs 现实正在发生Y），然后转化为公众号选题。
+
+规则（必须严格遵守）：
+1. 每个选题必须直接对应上面至少一条搜索结果。在 reason 字段中注明对应的编号。
+2. 禁止使用任何在上述搜索结果中没有出现的书籍、电影、人名、作品名。
+3. 选题要可争议——不是复述新闻，是提出一个读者会想点开辩论的判断。
+4. 标题要有具体锚点（角色/场景/行为），禁止抽象评论句。
+
+输出JSON：[{{"topic":"...","reason":"基于#N（20字）","category":"文化/科技/思想","trend_score":0.8}}]"""
+
+    try:
+        resp = await acall_llm(prompt, f"基于{len(web_results)}条搜索结果生成5个选题。", provider=provider,
+                               temperature=0.6, json_mode=True, trace_stage="topic_from_web")
+        topics = _json.loads(resp)
+        if isinstance(topics, dict) and "topics" in topics:
+            topics = topics["topics"]
+        if isinstance(topics, list) and len(topics) > 0:
+            save_topic_pool(session_id, topics)
+            logger.info(f"Topic pool refreshed (web): {len(topics)} topics added")
+        else:
+            logger.warning(f"Web topic generation returned empty or invalid: {type(topics)}")
+    except Exception as e:
+        logger.error(f"Web topic generation failed: {e}")
 
 
 async def _generate_from_news(session_id: str) -> None:
